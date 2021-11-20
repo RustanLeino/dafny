@@ -10,9 +10,7 @@
 //       - main program for taking a Dafny program and verifying it
 //---------------------------------------------------------------------------------------------
 
-using System.Security;
-using DafnyServer.CounterExampleGeneration;
-using DafnyTestGeneration;
+using DafnyServer.CounterexampleGeneration;
 
 namespace Microsoft.Dafny {
   using System;
@@ -66,6 +64,9 @@ namespace Microsoft.Dafny {
 
       if (CommandLineOptions.Clo.XmlSink != null) {
         CommandLineOptions.Clo.XmlSink.Close();
+        if (DafnyOptions.O.VerificationLoggerConfig != null) {
+          BoogieXmlConvertor.RaiseTestLoggerEvents(DafnyOptions.O.BoogieXmlFilename, DafnyOptions.O.VerificationLoggerConfig);
+        }
       }
       if (CommandLineOptions.Clo.Wait) {
         Console.WriteLine("Press Enter to exit.");
@@ -216,7 +217,7 @@ namespace Microsoft.Dafny {
         return CommandLineArgumentsResult.PREPROCESSING_ERROR;
       }
 
-      if (DafnyOptions.O.ExtractCounterExample && DafnyOptions.O.ModelViewFile == null) {
+      if (DafnyOptions.O.ExtractCounterexample && DafnyOptions.O.ModelViewFile == null) {
         ExecutionEngine.printer.ErrorWriteLine(Console.Out,
           "*** Error: ModelView file must be specified when attempting counterexample extraction");
         return CommandLineArgumentsResult.PREPROCESSING_ERROR;
@@ -297,7 +298,7 @@ namespace Microsoft.Dafny {
       if (err == null && dafnyProgram != null && DafnyOptions.O.PrintFunctionCallGraph) {
         Util.PrintFunctionCallGraph(dafnyProgram);
       }
-      if (dafnyProgram != null && DafnyOptions.O.ExtractCounterExample && exitValue == ExitValue.VERIFICATION_ERROR) {
+      if (dafnyProgram != null && DafnyOptions.O.ExtractCounterexample && exitValue == ExitValue.VERIFICATION_ERROR) {
         PrintCounterexample(DafnyOptions.O.ModelViewFile);
       }
       return exitValue;
@@ -596,8 +597,14 @@ namespace Microsoft.Dafny {
 
     #region Compilation
 
-    static string WriteDafnyProgramToFiles(Compiler compiler, string dafnyProgramName, bool targetProgramHasErrors,
-      string targetProgramText, string/*?*/ callToMain, Dictionary<string, string> otherFiles, TextWriter outputWriter) {
+    private record TargetPaths(string Directory, string Filename) {
+      private Func<string, string> DeleteDot = p => p == "." ? "" : p;
+      public string RelativeDirectory => DeleteDot(Path.GetRelativePath(Directory, Path.GetDirectoryName(Filename)));
+      public string RelativeFilename => DeleteDot(Path.GetRelativePath(Directory, Filename));
+      public string SourceDirectory => Path.GetDirectoryName(Filename);
+    }
+
+    private static TargetPaths GenerateTargetPaths(Compiler compiler, string dafnyProgramName) {
       string targetExtension;
       string baseName = Path.GetFileNameWithoutExtension(dafnyProgramName);
       string targetBaseDir = "";
@@ -632,34 +639,39 @@ namespace Microsoft.Dafny {
       // Note that using Path.ChangeExtension here does the wrong thing when dafnyProgramName has multiple periods (e.g., a.b.dfy)
       string targetBaseName = baseName + "." + targetExtension;
       string targetDir = Path.Combine(Path.GetDirectoryName(dafnyProgramName), targetBaseDir);
+
+      string targetFilename = Path.Combine(targetDir, targetBaseName);
+
+      return new TargetPaths(Directory: Path.GetDirectoryName(dafnyProgramName), Filename: targetFilename);
+    }
+
+    static void WriteDafnyProgramToFiles(TargetPaths paths, bool targetProgramHasErrors, string targetProgramText,
+      string/*?*/ callToMain, Dictionary<string, string> otherFiles, TextWriter outputWriter) {
       // WARNING: Make sure that Directory.Delete is only called when the compilation target is Java.
       // If called during C# or JS compilation, you will lose your entire target directory.
       // Purpose is to delete the old generated folder with the Java compilation output and replace all contents.
-      if (DafnyOptions.O.CompileTarget is DafnyOptions.CompilationTarget.Java && Directory.Exists(targetDir)) {
-        Directory.Delete(targetDir, true);
+      if (DafnyOptions.O.CompileTarget is DafnyOptions.CompilationTarget.Java && Directory.Exists(paths.SourceDirectory)) {
+        Directory.Delete(paths.SourceDirectory, true);
       }
-      string targetFilename = Path.Combine(targetDir, targetBaseName);
-      WriteFile(targetFilename, targetProgramText, callToMain);
 
-      string relativeTarget = Path.Combine(targetBaseDir, targetBaseName);
+      WriteFile(paths.Filename, targetProgramText, callToMain);
+
       if (targetProgramHasErrors) {
         // Something went wrong during compilation (e.g., the compiler may have found an "assume" statement).
         // As a courtesy, we're still printing the text of the generated target program. We print a message regardless
         // of the CompileVerbose settings.
-        outputWriter.WriteLine("Wrote textual form of partial target program to {0}", relativeTarget);
+        outputWriter.WriteLine("Wrote textual form of partial target program to {0}", paths.RelativeFilename);
       } else if (DafnyOptions.O.CompileVerbose) {
-        outputWriter.WriteLine("Wrote textual form of target program to {0}", relativeTarget);
+        outputWriter.WriteLine("Wrote textual form of target program to {0}", paths.RelativeFilename);
       }
 
       foreach (var entry in otherFiles) {
         var filename = entry.Key;
-        WriteFile(Path.Combine(targetDir, filename), entry.Value);
+        WriteFile(Path.Join(paths.SourceDirectory, filename), entry.Value);
         if (DafnyOptions.O.CompileVerbose) {
-          outputWriter.WriteLine("Additional target code written to {0}", Path.Combine(targetBaseDir, filename));
+          outputWriter.WriteLine("Additional target code written to {0}", Path.Join(paths.RelativeDirectory, filename));
         }
       }
-
-      return targetFilename;
     }
 
     static void WriteFile(string filename, string text, string moreText = null) {
@@ -749,10 +761,10 @@ namespace Microsoft.Dafny {
       compiler.Coverage.WriteLegendFile();
 
       // blurt out the code to a file, if requested, or if other target-language files were specified on the command line.
-      string targetFilename = null;
+      var paths = GenerateTargetPaths(compiler, dafnyProgramName);
       if (DafnyOptions.O.SpillTargetCode > 0 || otherFileNames.Count > 0 || (invokeCompiler && !compiler.SupportsInMemoryCompilation) ||
           (invokeCompiler && compiler.TextualTargetIsExecutable && !DafnyOptions.O.RunAfterCompile)) {
-        targetFilename = WriteDafnyProgramToFiles(compiler, dafnyProgramName, targetProgramHasErrors, targetProgramText, callToMain, otherFiles, outputWriter);
+        WriteDafnyProgramToFiles(paths, targetProgramHasErrors, targetProgramText, callToMain, otherFiles, outputWriter);
       }
 
       if (targetProgramHasErrors) {
@@ -764,7 +776,7 @@ namespace Microsoft.Dafny {
       }
 
       // compile the program into an assembly
-      var compiledCorrectly = compiler.CompileTargetProgram(dafnyProgramName, targetProgramText, callToMain, targetFilename, otherFileNames,
+      var compiledCorrectly = compiler.CompileTargetProgram(dafnyProgramName, targetProgramText, callToMain, paths.Filename, otherFileNames,
         hasMain && DafnyOptions.O.RunAfterCompile, outputWriter, out var compilationResult);
       if (compiledCorrectly && DafnyOptions.O.RunAfterCompile) {
         if (hasMain) {
@@ -772,7 +784,7 @@ namespace Microsoft.Dafny {
             outputWriter.WriteLine("Running...");
             outputWriter.WriteLine();
           }
-          compiledCorrectly = compiler.RunTargetProgram(dafnyProgramName, targetProgramText, callToMain, targetFilename, otherFileNames, compilationResult, outputWriter);
+          compiledCorrectly = compiler.RunTargetProgram(dafnyProgramName, targetProgramText, callToMain, paths.Filename, otherFileNames, compilationResult, outputWriter);
         } else {
           // make sure to give some feedback to the user
           if (DafnyOptions.O.CompileVerbose) {
