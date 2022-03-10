@@ -2638,436 +2638,16 @@ namespace Microsoft.Dafny {
 
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
 
-      // ---------------------------------- Pass 0 ----------------------------------
-      // This pass resolves names, introduces (and may solve) type constraints, and
-      // builds the module's call graph.
-      // For 'newtype' and subset-type declarations, it also checks that all types were fully
-      // determined.
-      // ----------------------------------------------------------------------------
-
-      // Resolve the meat of classes and iterators, the definitions of type synonyms, and the type parameters of all top-level type declarations
-      // In the first two loops below, resolve the newtype/subset-type declarations and their constraint clauses and const definitions, including
-      // filling in .ResolvedOp fields.  This is needed for the resolution of the other declarations, because those other declarations may invoke
-      // DiscoverBounds, which looks at the .Constraint or .Rhs field of any such types involved.
-      // The third loop resolves the other declarations.  It also resolves any witness expressions of newtype/subset-type declarations.
-      foreach (TopLevelDecl topd in declarations) {
-        Contract.Assert(topd != null);
-        Contract.Assert(VisibleInScope(topd));
-        TopLevelDecl d = topd is ClassDecl ? ((ClassDecl)topd).NonNullTypeDecl : topd;
-        if (d is NewtypeDecl) {
-          var dd = (NewtypeDecl)d;
-          ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
-          // this check can be done only after it has been determined that the redirected types do not involve cycles
-          AddXConstraint(dd.tok, "NumericType", dd.BaseType, "newtypes must be based on some numeric type (got {0})");
-          // type check the constraint, if any
-          if (dd.Var == null) {
-            SolveAllTypeConstraints();
-          } else {
-            Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.BaseType));  // follows from NewtypeDecl invariant
-            Contract.Assert(dd.Constraint != null);  // follows from NewtypeDecl invariant
-
-            scope.PushMarker();
-            var added = scope.Push(dd.Var.Name, dd.Var);
-            Contract.Assert(added == Scope<IVariable>.PushResult.Success);
-            ResolveExpression(dd.Constraint, new ResolveOpts(new CodeContextWrapper(dd, true), false));
-            Contract.Assert(dd.Constraint.Type != null);  // follows from postcondition of ResolveExpression
-            ConstrainTypeExprBool(dd.Constraint, "newtype constraint must be of type bool (instead got {0})");
-            SolveAllTypeConstraints();
-            if (!CheckTypeInference_Visitor.IsDetermined(dd.BaseType.NormalizeExpand())) {
-              reporter.Error(MessageSource.Resolver, dd.tok, "newtype's base type is not fully determined; add an explicit type for '{0}'", dd.Var.Name);
-            }
-            scope.PopMarker();
-          }
-
-        } else if (d is SubsetTypeDecl) {
-          var dd = (SubsetTypeDecl)d;
-
-          allTypeParameters.PushMarker();
-          ResolveTypeParameters(d.TypeArgs, false, d);
-          ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
-          // type check the constraint
-          Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.Rhs));  // follows from SubsetTypeDecl invariant
-          Contract.Assert(dd.Constraint != null);  // follows from SubsetTypeDecl invariant
-          scope.PushMarker();
-          var added = scope.Push(dd.Var.Name, dd.Var);
-          Contract.Assert(added == Scope<IVariable>.PushResult.Success);
-          ResolveExpression(dd.Constraint, new ResolveOpts(new CodeContextWrapper(dd, true), false));
-          Contract.Assert(dd.Constraint.Type != null);  // follows from postcondition of ResolveExpression
-          ConstrainTypeExprBool(dd.Constraint, "subset-type constraint must be of type bool (instead got {0})");
-          SolveAllTypeConstraints();
-          if (!CheckTypeInference_Visitor.IsDetermined(dd.Rhs.NormalizeExpand())) {
-            reporter.Error(MessageSource.Resolver, dd.tok, "subset type's base type is not fully determined; add an explicit type for '{0}'", dd.Var.Name);
-          }
-          dd.ConstraintIsCompilable = ExpressionTester.CheckIsCompilable(null, dd.Constraint, new CodeContextWrapper(dd, true));
-          dd.CheckedIfConstraintIsCompilable = true;
-
-          scope.PopMarker();
-          allTypeParameters.PopMarker();
-        }
-        if (topd is TopLevelDeclWithMembers) {
-          var cl = (TopLevelDeclWithMembers)topd;
-          currentClass = cl;
-          foreach (var member in cl.Members) {
-            Contract.Assert(VisibleInScope(member));
-            if (member is ConstantField) {
-              var field = (ConstantField)member;
-              var opts = new ResolveOpts(field, false);
-              ResolveAttributes(field, opts);
-              // Resolve the value expression
-              if (field.Rhs != null) {
-                var ec = reporter.Count(ErrorLevel.Error);
-                ResolveExpression(field.Rhs, opts);
-                if (reporter.Count(ErrorLevel.Error) == ec) {
-                  // make sure initialization only refers to constant field or literal expression
-                  if (CheckIsConstantExpr(field, field.Rhs)) {
-                    AddAssignableConstraint(field.tok, field.Type, field.Rhs.Type, "type for constant '" + field.Name + "' is '{0}', but its initialization value type is '{1}'");
-                  }
-                }
-              }
-              SolveAllTypeConstraints();
-              if (!CheckTypeInference_Visitor.IsDetermined(field.Type.NormalizeExpand())) {
-                reporter.Error(MessageSource.Resolver, field.tok, "const field's type is not fully determined");
-              }
-            }
-          }
-          currentClass = null;
-        }
-      }
-      Contract.Assert(AllTypeConstraints.Count == 0);
-      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        // Check type inference, which also discovers bounds, in newtype/subset-type constraints and const declarations
-        foreach (TopLevelDecl topd in declarations) {
-          TopLevelDecl d = topd is ClassDecl ? ((ClassDecl)topd).NonNullTypeDecl : topd;
-          if (d is RedirectingTypeDecl dd && dd.Constraint != null) {
-            CheckTypeInference(dd.Constraint, dd);
-          }
-          if (topd is TopLevelDeclWithMembers cl) {
-            foreach (var member in cl.Members) {
-              if (member is ConstantField field && field.Rhs != null) {
-                CheckTypeInference(field.Rhs, field);
-                if (!field.IsGhost) {
-                  ExpressionTester.CheckIsCompilable(this, field.Rhs, field);
-                }
-              }
-            }
-          }
-        }
-      }
-      // Now, we're ready for the other declarations, along with any witness clauses of newtype/subset-type declarations.
-      foreach (TopLevelDecl d in declarations) {
-        Contract.Assert(AllTypeConstraints.Count == 0);
-        allTypeParameters.PushMarker();
-        ResolveTypeParameters(d.TypeArgs, false, d);
-        if (d is NewtypeDecl || d is SubsetTypeDecl) {
-          // NewTypeDecl's and SubsetTypeDecl's were already processed in the loop above, except for any witness clauses
-          var dd = (RedirectingTypeDecl)d;
-          if (dd.Witness != null) {
-            var prevErrCnt = reporter.Count(ErrorLevel.Error);
-            var codeContext = new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost);
-            ResolveExpression(dd.Witness, new ResolveOpts(codeContext, false));
-            ConstrainSubtypeRelation(dd.Var.Type, dd.Witness.Type, dd.Witness, "witness expression must have type '{0}' (got '{1}')", dd.Var.Type, dd.Witness.Type);
-            SolveAllTypeConstraints();
-            if (reporter.Count(ErrorLevel.Error) == prevErrCnt) {
-              CheckTypeInference(dd.Witness, dd);
-            }
-            if (reporter.Count(ErrorLevel.Error) == prevErrCnt && dd.WitnessKind == SubsetTypeDecl.WKind.Compiled) {
-              ExpressionTester.CheckIsCompilable(this, dd.Witness, codeContext);
-            }
-          }
-          if (d is TopLevelDeclWithMembers dm) {
-            ResolveClassMemberBodies(dm);
-          }
-        } else {
-          if (!(d is IteratorDecl)) {
-            // Note, attributes of iterators are resolved by ResolvedIterator, after registering any names in the iterator signature
-            ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
-          }
-          if (d is IteratorDecl) {
-            var iter = (IteratorDecl)d;
-            ResolveIterator(iter);
-            ResolveClassMemberBodies(iter);  // resolve the automatically generated members
-          } else if (d is DatatypeDecl) {
-            var dt = (DatatypeDecl)d;
-            foreach (var ctor in dt.Ctors) {
-              ResolveAttributes(ctor, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
-              foreach (var formal in ctor.Formals) {
-                AddTypeDependencyEdges((ICallable)d, formal.Type);
-              }
-            }
-            // resolve any default parameters
-            foreach (var ctor in dt.Ctors) {
-              scope.PushMarker();
-              scope.AllowInstance = false;
-              ctor.Formals.ForEach(p => scope.Push(p.Name, p));
-              ResolveParameterDefaultValues(ctor.Formals, dt);
-              scope.PopMarker();
-            }
-            // resolve members
-            ResolveClassMemberBodies(dt);
-          } else if (d is TopLevelDeclWithMembers) {
-            var dd = (TopLevelDeclWithMembers)d;
-            ResolveClassMemberBodies(dd);
-          }
-        }
-        allTypeParameters.PopMarker();
-      }
-
-      // ---------------------------------- Pass 1 ----------------------------------
-      // This pass:
-      // * checks that type inference was able to determine all types
-      // * check that shared destructors in datatypes are in agreement
-      // * fills in the .ResolvedOp field of binary expressions
-      // * performs substitution for DefaultValueExpression's
-      // * discovers bounds for:
-      //     - forall statements
-      //     - set comprehensions
-      //     - map comprehensions
-      //     - quantifier expressions
-      //     - assign-such-that statements
-      //     - compilable let-such-that expressions
-      //     - newtype constraints
-      //     - subset-type constraints
-      // For each statement body that it successfully typed, this pass also:
-      // * computes ghost interests
-      // * determines/checks tail-recursion.
-      // ----------------------------------------------------------------------------
+      ResolvePass0(declarations);
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        // Check that type inference went well everywhere; this will also fill in the .ResolvedOp field in binary expressions
-        // Also, for each datatype, check that shared destructors are in agreement
-        foreach (TopLevelDecl d in declarations) {
-          if (d is IteratorDecl) {
-            var iter = (IteratorDecl)d;
-            var prevErrCnt = reporter.Count(ErrorLevel.Error);
-            foreach (var formal in iter.Ins) {
-              if (formal.DefaultValue != null) {
-                CheckTypeInference(formal.DefaultValue, iter);
-              }
-            }
-            iter.Members.Iter(CheckTypeInference_Member);
-            if (prevErrCnt == reporter.Count(ErrorLevel.Error)) {
-              iter.SubExpressions.Iter(e => CheckExpression(e, this, iter));
-            }
-            ResolveParameterDefaultValues_Pass1(iter.Ins, iter);
-            if (iter.Body != null) {
-              CheckTypeInference(iter.Body, iter);
-              if (prevErrCnt == reporter.Count(ErrorLevel.Error)) {
-                ComputeGhostInterest(iter.Body, false, null, iter);
-                CheckExpression(iter.Body, this, iter);
-              }
-            }
-          } else if (d is ClassDecl) {
-            var dd = (ClassDecl)d;
-            ResolveClassMembers_Pass1(dd);
-          } else if (d is SubsetTypeDecl) {
-            var dd = (SubsetTypeDecl)d;
-            Contract.Assert(dd.Constraint != null);
-            CheckExpression(dd.Constraint, this, new CodeContextWrapper(dd, true));
-            if (dd.Witness != null) {
-              CheckExpression(dd.Witness, this, new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost));
-            }
-          } else if (d is NewtypeDecl) {
-            var dd = (NewtypeDecl)d;
-            if (dd.Var != null) {
-              Contract.Assert(dd.Constraint != null);
-              CheckExpression(dd.Constraint, this, new CodeContextWrapper(dd, true));
-              if (dd.Witness != null) {
-                CheckExpression(dd.Witness, this, new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost));
-              }
-            }
-            FigureOutNativeType(dd);
-            ResolveClassMembers_Pass1(dd);
-          } else if (d is DatatypeDecl) {
-            var dd = (DatatypeDecl)d;
-            foreach (var ctor in dd.Ctors) {
-              foreach (var formal in ctor.Formals) {
-                if (formal.DefaultValue != null) {
-                  CheckTypeInference(formal.DefaultValue, dd);
-                }
-              }
-            }
-            foreach (var member in classMembers[dd].Values) {
-              var dtor = member as DatatypeDestructor;
-              if (dtor != null) {
-                var rolemodel = dtor.CorrespondingFormals[0];
-                for (int i = 1; i < dtor.CorrespondingFormals.Count; i++) {
-                  var other = dtor.CorrespondingFormals[i];
-                  if (!Type.Equal_Improved(rolemodel.Type, other.Type)) {
-                    reporter.Error(MessageSource.Resolver, other,
-                      "shared destructors must have the same type, but '{0}' has type '{1}' in constructor '{2}' and type '{3}' in constructor '{4}'",
-                      rolemodel.Name, rolemodel.Type, dtor.EnclosingCtors[0].Name, other.Type, dtor.EnclosingCtors[i].Name);
-                  } else if (rolemodel.IsGhost != other.IsGhost) {
-                    reporter.Error(MessageSource.Resolver, other,
-                      "shared destructors must agree on whether or not they are ghost, but '{0}' is {1} in constructor '{2}' and {3} in constructor '{4}'",
-                      rolemodel.Name,
-                      rolemodel.IsGhost ? "ghost" : "non-ghost", dtor.EnclosingCtors[0].Name,
-                      other.IsGhost ? "ghost" : "non-ghost", dtor.EnclosingCtors[i].Name);
-                  }
-                }
-              }
-            }
-            foreach (var ctor in dd.Ctors) {
-              ResolveParameterDefaultValues_Pass1(ctor.Formals, dd);
-            }
-            ResolveClassMembers_Pass1(dd);
-          } else if (d is OpaqueTypeDecl) {
-            var dd = (OpaqueTypeDecl)d;
-            ResolveClassMembers_Pass1(dd);
-          }
-        }
+        ResolvePass1(declarations);
       }
 
       FillInDefaultValueExpressions();
 
-      // ---------------------------------- Pass 2 ----------------------------------
-      // This pass fills in various additional information.
-      // * Subset type in comprehensions have a compilable constraint 
-      // * Postconditions and bodies of prefix lemmas
-      // * Compute postconditions and statement body of prefix lemmas
-      // * Perform the stratosphere check on inductive datatypes, and compute to what extent the inductive datatypes require equality support
-      // * Set the SccRepr field of codatatypes
-      // * Perform the guardedness check on co-datatypes
-      // * Do datatypes and type synonyms until a fixpoint is reached, same for functions and methods	
-      // * Check that functions claiming to be abstemious really are
-      // * Check that all == and != operators in non-ghost contexts are applied to equality-supporting types.
-      // * Extreme predicate recursivity checks
-      // * Verify that subset constraints are compilable if necessary
-      // ----------------------------------------------------------------------------
-
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        // fill in the postconditions and bodies of prefix lemmas
-        foreach (var com in ModuleDefinition.AllExtremeLemmas(declarations)) {
-          var prefixLemma = com.PrefixLemma;
-          if (prefixLemma == null) {
-            continue;  // something went wrong during registration of the prefix lemma (probably a duplicated extreme lemma name)
-          }
-          var k = prefixLemma.Ins[0];
-          var focalPredicates = new HashSet<ExtremePredicate>();
-          if (com is GreatestLemma) {
-            // compute the postconditions of the prefix lemma
-            Contract.Assume(prefixLemma.Ens.Count == 0);  // these are not supposed to have been filled in before
-            foreach (var p in com.Ens) {
-              var coConclusions = new HashSet<Expression>();
-              CollectFriendlyCallsInExtremeLemmaSpecification(p.E, true, coConclusions, true, com);
-              var subst = new ExtremeLemmaSpecificationSubstituter(coConclusions, new IdentifierExpr(k.tok, k.Name), this.reporter, true);
-              var post = subst.CloneExpr(p.E);
-              prefixLemma.Ens.Add(new AttributedExpression(post));
-              foreach (var e in coConclusions) {
-                var fce = e as FunctionCallExpr;
-                if (fce != null) {  // the other possibility is that "e" is a BinaryExpr
-                  GreatestPredicate predicate = (GreatestPredicate)fce.Function;
-                  focalPredicates.Add(predicate);
-                  // For every focal predicate P in S, add to S all co-predicates in the same strongly connected
-                  // component (in the call graph) as P
-                  foreach (var node in predicate.EnclosingClass.EnclosingModuleDefinition.CallGraph.GetSCC(predicate)) {
-                    if (node is GreatestPredicate) {
-                      focalPredicates.Add((GreatestPredicate)node);
-                    }
-                  }
-                }
-              }
-            }
-          } else {
-            // compute the preconditions of the prefix lemma
-            Contract.Assume(prefixLemma.Req.Count == 0);  // these are not supposed to have been filled in before
-            foreach (var p in com.Req) {
-              var antecedents = new HashSet<Expression>();
-              CollectFriendlyCallsInExtremeLemmaSpecification(p.E, true, antecedents, false, com);
-              var subst = new ExtremeLemmaSpecificationSubstituter(antecedents, new IdentifierExpr(k.tok, k.Name), this.reporter, false);
-              var pre = subst.CloneExpr(p.E);
-              prefixLemma.Req.Add(new AttributedExpression(pre, p.Label, null));
-              foreach (var e in antecedents) {
-                var fce = (FunctionCallExpr)e;  // we expect "antecedents" to contain only FunctionCallExpr's
-                LeastPredicate predicate = (LeastPredicate)fce.Function;
-                focalPredicates.Add(predicate);
-                // For every focal predicate P in S, add to S all least predicates in the same strongly connected
-                // component (in the call graph) as P
-                foreach (var node in predicate.EnclosingClass.EnclosingModuleDefinition.CallGraph.GetSCC(predicate)) {
-                  if (node is LeastPredicate) {
-                    focalPredicates.Add((LeastPredicate)node);
-                  }
-                }
-              }
-            }
-          }
-          reporter.Info(MessageSource.Resolver, com.tok,
-            string.Format("{0} with focal predicate{2} {1}", com.PrefixLemma.Name, Util.Comma(focalPredicates, p => p.Name), Util.Plural(focalPredicates.Count)));
-          // Compute the statement body of the prefix lemma
-          Contract.Assume(prefixLemma.Body == null);  // this is not supposed to have been filled in before
-          if (com.Body != null) {
-            var kMinusOne = new BinaryExpr(com.tok, BinaryExpr.Opcode.Sub, new IdentifierExpr(k.tok, k.Name), new LiteralExpr(com.tok, 1));
-            var subst = new ExtremeLemmaBodyCloner(com, kMinusOne, focalPredicates, this.reporter);
-            var mainBody = subst.CloneBlockStmt(com.Body);
-            Expression kk;
-            Statement els;
-            if (k.Type.IsBigOrdinalType) {
-              kk = new MemberSelectExpr(k.tok, new IdentifierExpr(k.tok, k.Name), "Offset");
-              // As an "else" branch, we add recursive calls for the limit case.  When automatic induction is on,
-              // this get handled automatically, but we still want it in the case when automatic inductino has been
-              // turned off.
-              //     forall k', params | k' < _k && Precondition {
-              //       pp(k', params);
-              //     }
-              Contract.Assume(builtIns.ORDINAL_Offset != null);  // should have been filled in earlier
-              var kId = new IdentifierExpr(com.tok, k);
-              var kprimeVar = new BoundVar(com.tok, "_k'", Type.BigOrdinal);
-              var kprime = new IdentifierExpr(com.tok, kprimeVar);
-              var smaller = Expression.CreateLess(kprime, kId);
-
-              var bvs = new List<BoundVar>();  // TODO: populate with k', params
-              var substMap = new Dictionary<IVariable, Expression>();
-              foreach (var inFormal in prefixLemma.Ins) {
-                if (inFormal == k) {
-                  bvs.Add(kprimeVar);
-                  substMap.Add(k, kprime);
-                } else {
-                  var bv = new BoundVar(inFormal.tok, inFormal.Name, inFormal.Type);
-                  bvs.Add(bv);
-                  substMap.Add(inFormal, new IdentifierExpr(com.tok, bv));
-                }
-              }
-
-              Expression recursiveCallReceiver;
-              List<Expression> recursiveCallArgs;
-              Translator.RecursiveCallParameters(com.tok, prefixLemma, prefixLemma.TypeArgs, prefixLemma.Ins, substMap, out recursiveCallReceiver, out recursiveCallArgs);
-              var methodSel = new MemberSelectExpr(com.tok, recursiveCallReceiver, prefixLemma.Name);
-              methodSel.Member = prefixLemma;  // resolve here
-              methodSel.TypeApplication_AtEnclosingClass = prefixLemma.EnclosingClass.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
-              methodSel.TypeApplication_JustMember = prefixLemma.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
-              methodSel.Type = new InferredTypeProxy();
-              var recursiveCall = new CallStmt(com.tok, com.tok, new List<Expression>(), methodSel, recursiveCallArgs.ConvertAll(e => new ActualBinding(null, e)));
-              recursiveCall.IsGhost = prefixLemma.IsGhost;  // resolve here
-
-              var range = smaller;  // The range will be strengthened later with the call's precondition, substituted
-                                    // appropriately (which can only be done once the precondition has been resolved).
-              var attrs = new Attributes("_autorequires", new List<Expression>(), null);
-#if VERIFY_CORRECTNESS_OF_TRANSLATION_FORALL_STATEMENT_RANGE
-              // don't add the :_trustWellformed attribute
-#else
-              attrs = new Attributes("_trustWellformed", new List<Expression>(), attrs);
-#endif
-              attrs = new Attributes("auto_generated", new List<Expression>(), attrs);
-              var forallBody = new BlockStmt(com.tok, com.tok, new List<Statement>() { recursiveCall });
-              var forallStmt = new ForallStmt(com.tok, com.tok, bvs, attrs, range, new List<AttributedExpression>(), forallBody);
-              els = new BlockStmt(com.BodyStartTok, mainBody.EndTok, new List<Statement>() { forallStmt });
-            } else {
-              kk = new IdentifierExpr(k.tok, k.Name);
-              els = null;
-            }
-            var kPositive = new BinaryExpr(com.tok, BinaryExpr.Opcode.Lt, new LiteralExpr(com.tok, 0), kk);
-            var condBody = new IfStmt(com.BodyStartTok, mainBody.EndTok, false, kPositive, mainBody, els);
-            prefixLemma.Body = new BlockStmt(com.tok, condBody.EndTok, new List<Statement>() { condBody });
-          }
-          // The prefix lemma now has all its components, so it's finally time we resolve it
-          currentClass = (TopLevelDeclWithMembers)prefixLemma.EnclosingClass;
-          allTypeParameters.PushMarker();
-          ResolveTypeParameters(currentClass.TypeArgs, false, currentClass);
-          ResolveTypeParameters(prefixLemma.TypeArgs, false, prefixLemma);
-          ResolveMethod(prefixLemma);
-          allTypeParameters.PopMarker();
-          currentClass = null;
-          CheckTypeInference_Member(prefixLemma);
-        }
+        ResolvePass2(declarations);
       }
 
       // Perform the stratosphere check on inductive datatypes, and compute to what extent the inductive datatypes require equality support
@@ -3427,6 +3007,463 @@ namespace Microsoft.Dafny {
         }
       }
 
+      ResolvePass3(declarations, isAnExport, prevErrorCount);
+
+      // Verifies that, in all compiled places, subset types in comprehensions have a compilable constraint
+      new SubsetConstraintGhostChecker(this).Traverse(declarations);
+    }
+
+    private void ResolvePass0(List<TopLevelDecl> declarations) {
+      Contract.Requires(declarations != null);
+
+      int prevErrorCount = reporter.Count(ErrorLevel.Error);
+
+      // ---------------------------------- Pass 0 ----------------------------------
+      // This pass resolves names, introduces (and may solve) type constraints, and
+      // builds the module's call graph.
+      // For 'newtype' and subset-type declarations, it also checks that all types were fully
+      // determined.
+      // ----------------------------------------------------------------------------
+
+      // Resolve the meat of classes and iterators, the definitions of type synonyms, and the type parameters of all top-level type declarations
+      // In the first two loops below, resolve the newtype/subset-type declarations and their constraint clauses and const definitions, including
+      // filling in .ResolvedOp fields.  This is needed for the resolution of the other declarations, because those other declarations may invoke
+      // DiscoverBounds, which looks at the .Constraint or .Rhs field of any such types involved.
+      // The third loop resolves the other declarations.  It also resolves any witness expressions of newtype/subset-type declarations.
+      foreach (TopLevelDecl topd in declarations) {
+        Contract.Assert(topd != null);
+        Contract.Assert(VisibleInScope(topd));
+        TopLevelDecl d = topd is ClassDecl ? ((ClassDecl)topd).NonNullTypeDecl : topd;
+        if (d is NewtypeDecl) {
+          var dd = (NewtypeDecl)d;
+          ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
+          // this check can be done only after it has been determined that the redirected types do not involve cycles
+          AddXConstraint(dd.tok, "NumericType", dd.BaseType, "newtypes must be based on some numeric type (got {0})");
+          // type check the constraint, if any
+          if (dd.Var == null) {
+            SolveAllTypeConstraints();
+          } else {
+            Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.BaseType)); // follows from NewtypeDecl invariant
+            Contract.Assert(dd.Constraint != null); // follows from NewtypeDecl invariant
+
+            scope.PushMarker();
+            var added = scope.Push(dd.Var.Name, dd.Var);
+            Contract.Assert(added == Scope<IVariable>.PushResult.Success);
+            ResolveExpression(dd.Constraint, new ResolveOpts(new CodeContextWrapper(dd, true), false));
+            Contract.Assert(dd.Constraint.Type != null); // follows from postcondition of ResolveExpression
+            ConstrainTypeExprBool(dd.Constraint, "newtype constraint must be of type bool (instead got {0})");
+            SolveAllTypeConstraints();
+            if (!CheckTypeInference_Visitor.IsDetermined(dd.BaseType.NormalizeExpand())) {
+              reporter.Error(MessageSource.Resolver, dd.tok, "newtype's base type is not fully determined; add an explicit type for '{0}'",
+                dd.Var.Name);
+            }
+            scope.PopMarker();
+          }
+        } else if (d is SubsetTypeDecl) {
+          var dd = (SubsetTypeDecl)d;
+
+          allTypeParameters.PushMarker();
+          ResolveTypeParameters(d.TypeArgs, false, d);
+          ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
+          // type check the constraint
+          Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.Rhs)); // follows from SubsetTypeDecl invariant
+          Contract.Assert(dd.Constraint != null); // follows from SubsetTypeDecl invariant
+          scope.PushMarker();
+          var added = scope.Push(dd.Var.Name, dd.Var);
+          Contract.Assert(added == Scope<IVariable>.PushResult.Success);
+          ResolveExpression(dd.Constraint, new ResolveOpts(new CodeContextWrapper(dd, true), false));
+          Contract.Assert(dd.Constraint.Type != null); // follows from postcondition of ResolveExpression
+          ConstrainTypeExprBool(dd.Constraint, "subset-type constraint must be of type bool (instead got {0})");
+          SolveAllTypeConstraints();
+          if (!CheckTypeInference_Visitor.IsDetermined(dd.Rhs.NormalizeExpand())) {
+            reporter.Error(MessageSource.Resolver, dd.tok, "subset type's base type is not fully determined; add an explicit type for '{0}'",
+              dd.Var.Name);
+          }
+          dd.ConstraintIsCompilable = ExpressionTester.CheckIsCompilable(null, dd.Constraint, new CodeContextWrapper(dd, true));
+          dd.CheckedIfConstraintIsCompilable = true;
+
+          scope.PopMarker();
+          allTypeParameters.PopMarker();
+        }
+        if (topd is TopLevelDeclWithMembers) {
+          var cl = (TopLevelDeclWithMembers)topd;
+          currentClass = cl;
+          foreach (var member in cl.Members) {
+            Contract.Assert(VisibleInScope(member));
+            if (member is ConstantField) {
+              var field = (ConstantField)member;
+              var opts = new ResolveOpts(field, false);
+              ResolveAttributes(field, opts);
+              // Resolve the value expression
+              if (field.Rhs != null) {
+                var ec = reporter.Count(ErrorLevel.Error);
+                ResolveExpression(field.Rhs, opts);
+                if (reporter.Count(ErrorLevel.Error) == ec) {
+                  // make sure initialization only refers to constant field or literal expression
+                  if (CheckIsConstantExpr(field, field.Rhs)) {
+                    AddAssignableConstraint(field.tok, field.Type, field.Rhs.Type,
+                      "type for constant '" + field.Name + "' is '{0}', but its initialization value type is '{1}'");
+                  }
+                }
+              }
+              SolveAllTypeConstraints();
+              if (!CheckTypeInference_Visitor.IsDetermined(field.Type.NormalizeExpand())) {
+                reporter.Error(MessageSource.Resolver, field.tok, "const field's type is not fully determined");
+              }
+            }
+          }
+          currentClass = null;
+        }
+      }
+      Contract.Assert(AllTypeConstraints.Count == 0);
+      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+        // Check type inference, which also discovers bounds, in newtype/subset-type constraints and const declarations
+        foreach (TopLevelDecl topd in declarations) {
+          TopLevelDecl d = topd is ClassDecl ? ((ClassDecl)topd).NonNullTypeDecl : topd;
+          if (d is RedirectingTypeDecl dd && dd.Constraint != null) {
+            CheckTypeInference(dd.Constraint, dd);
+          }
+          if (topd is TopLevelDeclWithMembers cl) {
+            foreach (var member in cl.Members) {
+              if (member is ConstantField field && field.Rhs != null) {
+                CheckTypeInference(field.Rhs, field);
+                if (!field.IsGhost) {
+                  ExpressionTester.CheckIsCompilable(this, field.Rhs, field);
+                }
+              }
+            }
+          }
+        }
+      }
+      // Now, we're ready for the other declarations, along with any witness clauses of newtype/subset-type declarations.
+      foreach (TopLevelDecl d in declarations) {
+        Contract.Assert(AllTypeConstraints.Count == 0);
+        allTypeParameters.PushMarker();
+        ResolveTypeParameters(d.TypeArgs, false, d);
+        if (d is NewtypeDecl || d is SubsetTypeDecl) {
+          // NewTypeDecl's and SubsetTypeDecl's were already processed in the loop above, except for any witness clauses
+          var dd = (RedirectingTypeDecl)d;
+          if (dd.Witness != null) {
+            var prevErrCnt = reporter.Count(ErrorLevel.Error);
+            var codeContext = new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost);
+            ResolveExpression(dd.Witness, new ResolveOpts(codeContext, false));
+            ConstrainSubtypeRelation(dd.Var.Type, dd.Witness.Type, dd.Witness, "witness expression must have type '{0}' (got '{1}')", dd.Var.Type,
+              dd.Witness.Type);
+            SolveAllTypeConstraints();
+            if (reporter.Count(ErrorLevel.Error) == prevErrCnt) {
+              CheckTypeInference(dd.Witness, dd);
+            }
+            if (reporter.Count(ErrorLevel.Error) == prevErrCnt && dd.WitnessKind == SubsetTypeDecl.WKind.Compiled) {
+              ExpressionTester.CheckIsCompilable(this, dd.Witness, codeContext);
+            }
+          }
+          if (d is TopLevelDeclWithMembers dm) {
+            ResolveClassMemberBodies(dm);
+          }
+        } else {
+          if (!(d is IteratorDecl)) {
+            // Note, attributes of iterators are resolved by ResolvedIterator, after registering any names in the iterator signature
+            ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
+          }
+          if (d is IteratorDecl) {
+            var iter = (IteratorDecl)d;
+            ResolveIterator(iter);
+            ResolveClassMemberBodies(iter); // resolve the automatically generated members
+          } else if (d is DatatypeDecl) {
+            var dt = (DatatypeDecl)d;
+            foreach (var ctor in dt.Ctors) {
+              ResolveAttributes(ctor, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
+              foreach (var formal in ctor.Formals) {
+                AddTypeDependencyEdges((ICallable)d, formal.Type);
+              }
+            }
+            // resolve any default parameters
+            foreach (var ctor in dt.Ctors) {
+              scope.PushMarker();
+              scope.AllowInstance = false;
+              ctor.Formals.ForEach(p => scope.Push(p.Name, p));
+              ResolveParameterDefaultValues(ctor.Formals, dt);
+              scope.PopMarker();
+            }
+            // resolve members
+            ResolveClassMemberBodies(dt);
+          } else if (d is TopLevelDeclWithMembers) {
+            var dd = (TopLevelDeclWithMembers)d;
+            ResolveClassMemberBodies(dd);
+          }
+        }
+        allTypeParameters.PopMarker();
+      }
+    }
+
+    private void ResolvePass1(List<TopLevelDecl> declarations) {
+      Contract.Requires(declarations != null);
+
+      // ---------------------------------- Pass 1 ----------------------------------
+      // This pass:
+      // * checks that type inference was able to determine all types
+      // * check that shared destructors in datatypes are in agreement
+      // * fills in the .ResolvedOp field of binary expressions
+      // * performs substitution for DefaultValueExpression's
+      // * discovers bounds for:
+      //     - forall statements
+      //     - set comprehensions
+      //     - map comprehensions
+      //     - quantifier expressions
+      //     - assign-such-that statements
+      //     - compilable let-such-that expressions
+      //     - newtype constraints
+      //     - subset-type constraints
+      // For each statement body that it successfully typed, this pass also:
+      // * computes ghost interests
+      // * determines/checks tail-recursion.
+      // ----------------------------------------------------------------------------
+
+      // Check that type inference went well everywhere; this will also fill in the .ResolvedOp field in binary expressions
+      // Also, for each datatype, check that shared destructors are in agreement
+      foreach (TopLevelDecl d in declarations) {
+        if (d is IteratorDecl) {
+          var iter = (IteratorDecl)d;
+          var prevErrCnt = reporter.Count(ErrorLevel.Error);
+          foreach (var formal in iter.Ins) {
+            if (formal.DefaultValue != null) {
+              CheckTypeInference(formal.DefaultValue, iter);
+            }
+          }
+          iter.Members.Iter(CheckTypeInference_Member);
+          if (prevErrCnt == reporter.Count(ErrorLevel.Error)) {
+            iter.SubExpressions.Iter(e => CheckExpression(e, this, iter));
+          }
+          ResolveParameterDefaultValues_Pass1(iter.Ins, iter);
+          if (iter.Body != null) {
+            CheckTypeInference(iter.Body, iter);
+            if (prevErrCnt == reporter.Count(ErrorLevel.Error)) {
+              ComputeGhostInterest(iter.Body, false, null, iter);
+              CheckExpression(iter.Body, this, iter);
+            }
+          }
+        } else if (d is ClassDecl) {
+          var dd = (ClassDecl)d;
+          ResolveClassMembers_Pass1(dd);
+        } else if (d is SubsetTypeDecl) {
+          var dd = (SubsetTypeDecl)d;
+          Contract.Assert(dd.Constraint != null);
+          CheckExpression(dd.Constraint, this, new CodeContextWrapper(dd, true));
+          if (dd.Witness != null) {
+            CheckExpression(dd.Witness, this, new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost));
+          }
+        } else if (d is NewtypeDecl) {
+          var dd = (NewtypeDecl)d;
+          if (dd.Var != null) {
+            Contract.Assert(dd.Constraint != null);
+            CheckExpression(dd.Constraint, this, new CodeContextWrapper(dd, true));
+            if (dd.Witness != null) {
+              CheckExpression(dd.Witness, this, new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost));
+            }
+          }
+          FigureOutNativeType(dd);
+          ResolveClassMembers_Pass1(dd);
+        } else if (d is DatatypeDecl) {
+          var dd = (DatatypeDecl)d;
+          foreach (var ctor in dd.Ctors) {
+            foreach (var formal in ctor.Formals) {
+              if (formal.DefaultValue != null) {
+                CheckTypeInference(formal.DefaultValue, dd);
+              }
+            }
+          }
+          foreach (var member in classMembers[dd].Values) {
+            var dtor = member as DatatypeDestructor;
+            if (dtor != null) {
+              var rolemodel = dtor.CorrespondingFormals[0];
+              for (int i = 1; i < dtor.CorrespondingFormals.Count; i++) {
+                var other = dtor.CorrespondingFormals[i];
+                if (!Type.Equal_Improved(rolemodel.Type, other.Type)) {
+                  reporter.Error(MessageSource.Resolver, other,
+                    "shared destructors must have the same type, but '{0}' has type '{1}' in constructor '{2}' and type '{3}' in constructor '{4}'",
+                    rolemodel.Name, rolemodel.Type, dtor.EnclosingCtors[0].Name, other.Type, dtor.EnclosingCtors[i].Name);
+                } else if (rolemodel.IsGhost != other.IsGhost) {
+                  reporter.Error(MessageSource.Resolver, other,
+                    "shared destructors must agree on whether or not they are ghost, but '{0}' is {1} in constructor '{2}' and {3} in constructor '{4}'",
+                    rolemodel.Name,
+                    rolemodel.IsGhost ? "ghost" : "non-ghost", dtor.EnclosingCtors[0].Name,
+                    other.IsGhost ? "ghost" : "non-ghost", dtor.EnclosingCtors[i].Name);
+                }
+              }
+            }
+          }
+          foreach (var ctor in dd.Ctors) {
+            ResolveParameterDefaultValues_Pass1(ctor.Formals, dd);
+          }
+          ResolveClassMembers_Pass1(dd);
+        } else if (d is OpaqueTypeDecl) {
+          var dd = (OpaqueTypeDecl)d;
+          ResolveClassMembers_Pass1(dd);
+        }
+      }
+    }
+
+    private void ResolvePass2(List<TopLevelDecl> declarations) {
+      Contract.Requires(declarations != null);
+
+      // ---------------------------------- Pass 2 ----------------------------------
+      // This pass fills in various additional information.
+      // * Subset type in comprehensions have a compilable constraint 
+      // * Postconditions and bodies of prefix lemmas
+      // * Compute postconditions and statement body of prefix lemmas
+      // * Perform the stratosphere check on inductive datatypes, and compute to what extent the inductive datatypes require equality support
+      // * Set the SccRepr field of codatatypes
+      // * Perform the guardedness check on co-datatypes
+      // * Do datatypes and type synonyms until a fixpoint is reached, same for functions and methods	
+      // * Check that functions claiming to be abstemious really are
+      // * Check that all == and != operators in non-ghost contexts are applied to equality-supporting types.
+      // * Extreme predicate recursivity checks
+      // * Verify that subset constraints are compilable if necessary
+      // ----------------------------------------------------------------------------
+
+      // fill in the postconditions and bodies of prefix lemmas
+      foreach (var com in ModuleDefinition.AllExtremeLemmas(declarations)) {
+        var prefixLemma = com.PrefixLemma;
+        if (prefixLemma == null) {
+          continue; // something went wrong during registration of the prefix lemma (probably a duplicated extreme lemma name)
+        }
+        var k = prefixLemma.Ins[0];
+        var focalPredicates = new HashSet<ExtremePredicate>();
+        if (com is GreatestLemma) {
+          // compute the postconditions of the prefix lemma
+          Contract.Assume(prefixLemma.Ens.Count == 0); // these are not supposed to have been filled in before
+          foreach (var p in com.Ens) {
+            var coConclusions = new HashSet<Expression>();
+            CollectFriendlyCallsInExtremeLemmaSpecification(p.E, true, coConclusions, true, com);
+            var subst = new ExtremeLemmaSpecificationSubstituter(coConclusions, new IdentifierExpr(k.tok, k.Name), this.reporter, true);
+            var post = subst.CloneExpr(p.E);
+            prefixLemma.Ens.Add(new AttributedExpression(post));
+            foreach (var e in coConclusions) {
+              var fce = e as FunctionCallExpr;
+              if (fce != null) {
+                // the other possibility is that "e" is a BinaryExpr
+                GreatestPredicate predicate = (GreatestPredicate)fce.Function;
+                focalPredicates.Add(predicate);
+                // For every focal predicate P in S, add to S all co-predicates in the same strongly connected
+                // component (in the call graph) as P
+                foreach (var node in predicate.EnclosingClass.EnclosingModuleDefinition.CallGraph.GetSCC(predicate)) {
+                  if (node is GreatestPredicate) {
+                    focalPredicates.Add((GreatestPredicate)node);
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // compute the preconditions of the prefix lemma
+          Contract.Assume(prefixLemma.Req.Count == 0); // these are not supposed to have been filled in before
+          foreach (var p in com.Req) {
+            var antecedents = new HashSet<Expression>();
+            CollectFriendlyCallsInExtremeLemmaSpecification(p.E, true, antecedents, false, com);
+            var subst = new ExtremeLemmaSpecificationSubstituter(antecedents, new IdentifierExpr(k.tok, k.Name), this.reporter, false);
+            var pre = subst.CloneExpr(p.E);
+            prefixLemma.Req.Add(new AttributedExpression(pre, p.Label, null));
+            foreach (var e in antecedents) {
+              var fce = (FunctionCallExpr)e; // we expect "antecedents" to contain only FunctionCallExpr's
+              LeastPredicate predicate = (LeastPredicate)fce.Function;
+              focalPredicates.Add(predicate);
+              // For every focal predicate P in S, add to S all least predicates in the same strongly connected
+              // component (in the call graph) as P
+              foreach (var node in predicate.EnclosingClass.EnclosingModuleDefinition.CallGraph.GetSCC(predicate)) {
+                if (node is LeastPredicate) {
+                  focalPredicates.Add((LeastPredicate)node);
+                }
+              }
+            }
+          }
+        }
+        reporter.Info(MessageSource.Resolver, com.tok,
+          string.Format("{0} with focal predicate{2} {1}", com.PrefixLemma.Name, Util.Comma(focalPredicates, p => p.Name),
+            Util.Plural(focalPredicates.Count)));
+        // Compute the statement body of the prefix lemma
+        Contract.Assume(prefixLemma.Body == null); // this is not supposed to have been filled in before
+        if (com.Body != null) {
+          var kMinusOne = new BinaryExpr(com.tok, BinaryExpr.Opcode.Sub, new IdentifierExpr(k.tok, k.Name), new LiteralExpr(com.tok, 1));
+          var subst = new ExtremeLemmaBodyCloner(com, kMinusOne, focalPredicates, this.reporter);
+          var mainBody = subst.CloneBlockStmt(com.Body);
+          Expression kk;
+          Statement els;
+          if (k.Type.IsBigOrdinalType) {
+            kk = new MemberSelectExpr(k.tok, new IdentifierExpr(k.tok, k.Name), "Offset");
+            // As an "else" branch, we add recursive calls for the limit case.  When automatic induction is on,
+            // this get handled automatically, but we still want it in the case when automatic inductino has been
+            // turned off.
+            //     forall k', params | k' < _k && Precondition {
+            //       pp(k', params);
+            //     }
+            Contract.Assume(builtIns.ORDINAL_Offset != null); // should have been filled in earlier
+            var kId = new IdentifierExpr(com.tok, k);
+            var kprimeVar = new BoundVar(com.tok, "_k'", Type.BigOrdinal);
+            var kprime = new IdentifierExpr(com.tok, kprimeVar);
+            var smaller = Expression.CreateLess(kprime, kId);
+
+            var bvs = new List<BoundVar>(); // TODO: populate with k', params
+            var substMap = new Dictionary<IVariable, Expression>();
+            foreach (var inFormal in prefixLemma.Ins) {
+              if (inFormal == k) {
+                bvs.Add(kprimeVar);
+                substMap.Add(k, kprime);
+              } else {
+                var bv = new BoundVar(inFormal.tok, inFormal.Name, inFormal.Type);
+                bvs.Add(bv);
+                substMap.Add(inFormal, new IdentifierExpr(com.tok, bv));
+              }
+            }
+
+            Expression recursiveCallReceiver;
+            List<Expression> recursiveCallArgs;
+            Translator.RecursiveCallParameters(com.tok, prefixLemma, prefixLemma.TypeArgs, prefixLemma.Ins, substMap, out recursiveCallReceiver,
+              out recursiveCallArgs);
+            var methodSel = new MemberSelectExpr(com.tok, recursiveCallReceiver, prefixLemma.Name);
+            methodSel.Member = prefixLemma; // resolve here
+            methodSel.TypeApplication_AtEnclosingClass =
+              prefixLemma.EnclosingClass.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
+            methodSel.TypeApplication_JustMember = prefixLemma.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
+            methodSel.Type = new InferredTypeProxy();
+            var recursiveCall = new CallStmt(com.tok, com.tok, new List<Expression>(), methodSel,
+              recursiveCallArgs.ConvertAll(e => new ActualBinding(null, e)));
+            recursiveCall.IsGhost = prefixLemma.IsGhost; // resolve here
+
+            var range = smaller; // The range will be strengthened later with the call's precondition, substituted
+            // appropriately (which can only be done once the precondition has been resolved).
+            var attrs = new Attributes("_autorequires", new List<Expression>(), null);
+#if VERIFY_CORRECTNESS_OF_TRANSLATION_FORALL_STATEMENT_RANGE
+              // don't add the :_trustWellformed attribute
+#else
+            attrs = new Attributes("_trustWellformed", new List<Expression>(), attrs);
+#endif
+            attrs = new Attributes("auto_generated", new List<Expression>(), attrs);
+            var forallBody = new BlockStmt(com.tok, com.tok, new List<Statement>() { recursiveCall });
+            var forallStmt = new ForallStmt(com.tok, com.tok, bvs, attrs, range, new List<AttributedExpression>(), forallBody);
+            els = new BlockStmt(com.BodyStartTok, mainBody.EndTok, new List<Statement>() { forallStmt });
+          } else {
+            kk = new IdentifierExpr(k.tok, k.Name);
+            els = null;
+          }
+          var kPositive = new BinaryExpr(com.tok, BinaryExpr.Opcode.Lt, new LiteralExpr(com.tok, 0), kk);
+          var condBody = new IfStmt(com.BodyStartTok, mainBody.EndTok, false, kPositive, mainBody, els);
+          prefixLemma.Body = new BlockStmt(com.tok, condBody.EndTok, new List<Statement>() { condBody });
+        }
+        // The prefix lemma now has all its components, so it's finally time we resolve it
+        currentClass = (TopLevelDeclWithMembers)prefixLemma.EnclosingClass;
+        allTypeParameters.PushMarker();
+        ResolveTypeParameters(currentClass.TypeArgs, false, currentClass);
+        ResolveTypeParameters(prefixLemma.TypeArgs, false, prefixLemma);
+        ResolveMethod(prefixLemma);
+        allTypeParameters.PopMarker();
+        currentClass = null;
+        CheckTypeInference_Member(prefixLemma);
+      }
+    }
+
+    private void ResolvePass3(List<TopLevelDecl> declarations, bool isAnExport, int prevErrorCount) {
+      Contract.Requires(declarations != null);
+
       // ---------------------------------- Pass 3 ----------------------------------
       // Further checks
       // ----------------------------------------------------------------------------
@@ -3523,14 +3560,14 @@ namespace Microsoft.Dafny {
             }
             // go through inherited members...
             if (fieldWithoutKnownInitializer != null) {
-              reporter.Error(MessageSource.Resolver, cl.tok, "class '{0}' with fields without known initializers, like '{1}' of type '{2}', must declare a constructor",
-                cl.Name, fieldWithoutKnownInitializer.Name, Resolver.SubstType(fieldWithoutKnownInitializer.Type, cl.ParentFormalTypeParametersToActuals));
+              reporter.Error(MessageSource.Resolver, cl.tok,
+                "class '{0}' with fields without known initializers, like '{1}' of type '{2}', must declare a constructor",
+                cl.Name, fieldWithoutKnownInitializer.Name,
+                Resolver.SubstType(fieldWithoutKnownInitializer.Type, cl.ParentFormalTypeParametersToActuals));
             }
           }
         }
       }
-      // Verifies that, in all compiled places, subset types in comprehensions have a compilable constraint
-      new SubsetConstraintGhostChecker(this).Traverse(declarations);
     }
 
     private void CheckIsOkayWithoutRHS(ConstantField f) {
