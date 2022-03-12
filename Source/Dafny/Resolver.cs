@@ -2638,6 +2638,8 @@ namespace Microsoft.Dafny {
 
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
 
+      var preTypeResolver = new PreTypeResolver(this);
+      preTypeResolver.ResolveDeclarations(declarations);
       ResolvePass0(declarations);
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
@@ -2647,6 +2649,7 @@ namespace Microsoft.Dafny {
       FillInDefaultValueExpressions();
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+        preTypeResolver.SanityCheckOldAndNewInference(declarations);
         ResolvePass2(declarations);
       }
 

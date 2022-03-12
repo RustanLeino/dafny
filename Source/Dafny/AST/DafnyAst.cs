@@ -9020,6 +9020,8 @@ namespace Microsoft.Dafny {
       }
     }
 
+    public PreType PreType; // filled in during resolution
+    
     protected Type type;
     public Type Type {  // filled in during resolution
       get {
