@@ -21,14 +21,14 @@ using Microsoft.Dafny.Plugins;
 
 namespace Microsoft.Dafny {
   public class Resolver {
-    readonly BuiltIns builtIns;
+    readonly public BuiltIns builtIns;
 
     ErrorReporter reporter;
-    ModuleSignature moduleInfo = null;
+    public ModuleSignature moduleInfo = null;
 
     public ErrorReporter Reporter => reporter;
 
-    private bool RevealedInScope(Declaration d) {
+    public bool RevealedInScope(Declaration d) {
       Contract.Requires(d != null);
       Contract.Requires(moduleInfo != null);
       Contract.Requires(moduleInfo.VisibilityScope != null);
@@ -36,7 +36,7 @@ namespace Microsoft.Dafny {
       return useCompileSignatures || d.IsRevealedInScope(moduleInfo.VisibilityScope);
     }
 
-    private bool VisibleInScope(Declaration d) {
+    public bool VisibleInScope(Declaration d) {
       Contract.Requires(d != null);
       Contract.Requires(moduleInfo != null);
       Contract.Requires(moduleInfo.VisibilityScope != null);
@@ -6535,7 +6535,7 @@ namespace Microsoft.Dafny {
     // ----- Visitors ---------------------------------------------------------------------------------------
     // ------------------------------------------------------------------------------------------------------
     #region Visitors
-    class ResolverBottomUpVisitor : BottomUpVisitor {
+    public class ResolverBottomUpVisitor : BottomUpVisitor {
       protected Resolver resolver;
       public ResolverBottomUpVisitor(Resolver resolver) {
         Contract.Requires(resolver != null);
@@ -6651,7 +6651,7 @@ namespace Microsoft.Dafny {
       var c = new CheckTypeInference_Visitor(this, codeContext);
       c.Visit(stmt);
     }
-    class CheckTypeInference_Visitor : ResolverBottomUpVisitor {
+    public class CheckTypeInference_Visitor : ResolverBottomUpVisitor {
       readonly ICodeContext codeContext;
       public CheckTypeInference_Visitor(Resolver resolver, ICodeContext codeContext)
         : base(resolver) {
@@ -10564,7 +10564,7 @@ namespace Microsoft.Dafny {
     /// <summary>
     /// Assumes the specification of the iterator itself has been successfully resolved.
     /// </summary>
-    void CreateIteratorMethodSpecs(IteratorDecl iter) {
+    public void CreateIteratorMethodSpecs(IteratorDecl iter) {
       Contract.Requires(iter != null);
 
       // ---------- here comes the constructor ----------
@@ -17799,7 +17799,7 @@ namespace Microsoft.Dafny {
     /// Requires "expr" to be successfully resolved.
     /// Ensures that the set returned has no aliases.
     /// </summary>
-    static ISet<IVariable> FreeVariables(Expression expr) {
+    public static ISet<IVariable> FreeVariables(Expression expr) {
       Contract.Requires(expr != null);
       Contract.Ensures(expr.Type != null);
 
