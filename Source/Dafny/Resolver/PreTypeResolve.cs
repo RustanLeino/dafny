@@ -44,10 +44,13 @@ namespace Microsoft.Dafny {
       return this == preType;
     }
     
+    /// <summary>
+    /// Expects PT to be null, and sets PT to the given "target". Assumes that the caller has performed an
+    /// occurs check.
+    /// </summary>
     public bool Set(PreType target) {
       Contract.Requires(target != null);
       Contract.Requires(PT == null);
-      // TODO: perform cyclicity test
       Contract.Assert(PT == null); // make sure we get a run-time check for this important condition
       PT = target;
       return true;
@@ -141,7 +144,7 @@ namespace Microsoft.Dafny {
 
     private int typeProxyCount = 0; // used to give each PreTypeProxy a unique ID
 
-    public PreType NewPreTypeProxy() {
+    public PreType CreatePreTypeProxy() {
       return new PreTypeProxy(typeProxyCount++);
     }
 
@@ -174,7 +177,7 @@ namespace Microsoft.Dafny {
         var args = type.TypeArgs.ConvertAll(Type2PreType);
         return new DPreType(udt.ResolvedClass, args);
       } else if (type is TypeProxy) {
-        return NewPreTypeProxy();
+        return CreatePreTypeProxy();
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected type
       }
@@ -185,6 +188,33 @@ namespace Microsoft.Dafny {
       this.resolver = resolver;
     }
 
+    // ---------------------------------------- Equality constraints ----------------------------------------
+
+    void AddEqualityConstraint(PreType a, PreType b, Expression exprForToken, string msgFormat) {
+      if (a.Normalize() is PreTypeProxy pa && !Occurs(pa, b)) {
+        pa.Set(b);
+      } else if (b.Normalize() is PreTypeProxy pb && !Occurs(pb, a)) {
+        pb.Set(a);
+      } else {
+        ReportError(exprForToken, msgFormat, a, b);
+      }
+    }
+    
+    /// <summary>
+    /// Returns "true" if "proxy" is among the free variables of "t".
+    /// "proxy" is expected to be normalized.
+    /// </summary>
+    private bool Occurs(PreTypeProxy proxy, PreType t) {
+      Contract.Requires(t != null);
+      Contract.Requires(proxy != null);
+      t = t.Normalize();
+      if (t is DPreType pt) {
+        return pt.Arguments.Any(arg => Occurs(proxy, arg));
+      } else {
+        return proxy == t;
+      }
+    }
+    
     // ---------------------------------------- Subtype constraints ----------------------------------------
     
     class SubtypeConstraint {
@@ -285,8 +315,8 @@ namespace Microsoft.Dafny {
 
     private List<Confirmation> confirmations = new();
 
-    void AddConfirmation(Bpl.IToken tok, string check, PreType preType, string errorFormat, params object[] args) {
-      confirmations.Add(new Confirmation(tok, check, preType, errorFormat, args));
+    void AddConfirmation(Bpl.IToken tok, string check, PreType preType, string errorFormat) {
+      confirmations.Add(new Confirmation(tok, check, preType, errorFormat, preType));
     }
     
     // ----------------------------------------
@@ -958,28 +988,28 @@ namespace Microsoft.Dafny {
           eStatic.PreType = Type2PreType(eStatic.UnresolvedType);
         } else {
           if (e.Value == null) {
-            e.PreType = NewPreTypeProxy();
-            AddConfirmation(e.tok, "IsNullableRefType", e.PreType, "type of 'null' is a reference type, but it is used as {0}", e.PreType);
+            e.PreType = CreatePreTypeProxy();
+            AddConfirmation(e.tok, "IsNullableRefType", e.PreType, "type of 'null' is a reference type, but it is used as {0}");
           } else if (e.Value is BigInteger) {
-            e.PreType = NewPreTypeProxy();
+            e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Int);
-            AddConfirmation(e.tok, "InIntFamily", e.PreType, "integer literal used as if it had type {0}", e.PreType);
+            AddConfirmation(e.tok, "InIntFamily", e.PreType, "integer literal used as if it had type {0}");
           } else if (e.Value is BaseTypes.BigDec) {
-            e.PreType = NewPreTypeProxy();
+            e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Real);
-            AddConfirmation(e.tok, "InRealFamily", e.PreType, "type of real literal is used as {0}", e.PreType); // TODO: make this error message have the same form as the one for integers above
+            AddConfirmation(e.tok, "InRealFamily", e.PreType, "type of real literal is used as {0}"); // TODO: make this error message have the same form as the one for integers above
           } else if (e.Value is bool) {
-            e.PreType = NewPreTypeProxy();
+            e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Bool);
-            AddConfirmation(e.tok, "InBoolFamily", e.PreType, "boolean literal used as if it had type {0}", e.PreType);
+            AddConfirmation(e.tok, "InBoolFamily", e.PreType, "boolean literal used as if it had type {0}");
           } else if (e is CharLiteralExpr) {
-            e.PreType = NewPreTypeProxy();
+            e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Char);
-            AddConfirmation(e.tok, "InCharFamily", e.PreType, "character literal used as if it had type {0}", e.PreType);
+            AddConfirmation(e.tok, "InCharFamily", e.PreType, "character literal used as if it had type {0}");
           } else if (e is StringLiteralExpr) {
-            e.PreType = NewPreTypeProxy();
+            e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.String);
-            AddConfirmation(e.tok, "InSeqFamily", e.PreType, "string literal used as if it had type {0}", e.PreType);
+            AddConfirmation(e.tok, "InSeqFamily", e.PreType, "string literal used as if it had type {0}");
           } else {
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected literal type
           }
@@ -1304,6 +1334,7 @@ namespace Microsoft.Dafny {
         ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
         AddAssignableConstraint(expr.tok, e.ToType, e.E.Type, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
         e.Type = Type.Bool;
+#endif
 
       } else if (expr is BinaryExpr) {
 
@@ -1312,6 +1343,7 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.E1, opts);
 
         switch (e.Op) {
+#if SOON
           case BinaryExpr.Opcode.Iff:
           case BinaryExpr.Opcode.Imp:
           case BinaryExpr.Opcode.Exp:
@@ -1435,17 +1467,18 @@ namespace Microsoft.Dafny {
               e.E1.Type, expr.Type);
             break;
 
+#endif
           case BinaryExpr.Opcode.Mod:
-            expr.Type = new InferredTypeProxy();
-            AddXConstraint(expr.tok, "IntLikeOrBitvector", expr.Type, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
-            ConstrainSubtypeRelation(expr.Type, e.E0.Type,
-              expr, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})",
-              e.E0.Type, expr.Type);
-            ConstrainSubtypeRelation(expr.Type, e.E1.Type,
-              expr, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})",
-              e.E1.Type, expr.Type);
+            expr.PreType = CreatePreTypeProxy();
+            AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
+            AddConfirmation(expr.tok, "IntLikeOrBitvector", expr.PreType, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
+            AddEqualityConstraint(expr.PreType, e.E0.PreType,
+              expr, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
+            AddEqualityConstraint(expr.PreType, e.E1.PreType,
+              expr, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
             break;
 
+#if SOON
           case BinaryExpr.Opcode.BitwiseAnd:
           case BinaryExpr.Opcode.BitwiseOr:
           case BinaryExpr.Opcode.BitwiseXor:
@@ -1457,6 +1490,7 @@ namespace Microsoft.Dafny {
             ConstrainSubtypeRelation(expr.Type, e.E1.Type, expr, errFormat, e.E1.Type);
             AddXConstraint(expr.tok, "IsBitvector", e.E1.Type, errFormat);
             break;
+#endif
 
           default:
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected operator
@@ -1464,6 +1498,7 @@ namespace Microsoft.Dafny {
         // We should also fill in e.ResolvedOp, but we may not have enough information for that yet.  So, instead, delay
         // setting e.ResolvedOp until inside CheckTypeInference.
 
+#if SOON
       } else if (expr is TernaryExpr) {
         var e = (TernaryExpr)expr;
         ResolveExpression(e.E0, opts);
@@ -1905,7 +1940,7 @@ namespace Microsoft.Dafny {
 
       if (r == null) {
         // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .PreType
-        expr.PreType = NewPreTypeProxy();
+        expr.PreType = CreatePreTypeProxy();
       } else {
         expr.ResolvedExpression = r;
         expr.Type = r.Type.UseInternalSynonym();
@@ -2136,6 +2171,16 @@ namespace Microsoft.Dafny {
             case "IsNullableRefType":
               okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
               break;
+            case "IntLikeOrBitvector":
+              if (pt.Decl.Name == "int") {
+                okay = true;
+              } else if (pt.Decl.Name.StartsWith("bv")) {
+                var bits = pt.Decl.Name.Substring(2);
+                okay = bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
+              } else {
+                okay = false;
+              }
+              break;
 
             default:
               Contract.Assert(false); // unexpected case
@@ -2158,7 +2203,7 @@ namespace Microsoft.Dafny {
       });
       PrintList("Guarded constraints", guardedConstraints, gc => gc.Kind);
       PrintList("Default-type advice", defaultAdvice, advice => {
-        return $"{advice.PreType} ~-~-> {advice.What}";
+        return $"{advice.PreType} ~-~-> {advice.What.ToString().ToLower()}";
       });
       PrintList("Post-inference confirmations", confirmations, c => {
         var tok = c.Tok;
