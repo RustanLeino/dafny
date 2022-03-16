@@ -41,12 +41,11 @@ namespace Microsoft.Dafny {
     /// Expects PT to be null, and sets PT to the given "target". Assumes that the caller has performed an
     /// occurs check.
     /// </summary>
-    public bool Set(PreType target) {
+    public void Set(PreType target) {
       Contract.Requires(target != null);
       Contract.Requires(PT == null);
       Contract.Assert(PT == null); // make sure we get a run-time check for this important condition
       PT = target;
-      return true;
     }
   }
 

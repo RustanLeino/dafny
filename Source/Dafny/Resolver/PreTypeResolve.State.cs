@@ -54,20 +54,17 @@ namespace Microsoft.Dafny {
     /// Returns "true" if anything changed (that is, if any of the constraints in the type-inference state
     /// caused a change some pre-type proxy).
     /// </summary>
-    bool PartiallySolveTypeConstraints(string printableContext = null) {
+    void PartiallySolveTypeConstraints(string printableContext = null) {
       if (printableContext != null) {
         PrintTypeInferenceState("(partial) " + printableContext);
       }
-      var anythingChangedEver = false;
       bool anythingChanged;
       do {
         anythingChanged = false;
         anythingChanged |= ApplySubtypeConstraints();
         anythingChanged |= ApplyComparableConstraints();
         anythingChanged |= ApplyGuardedConstraints();
-        anythingChangedEver |= anythingChanged;
       } while (anythingChanged);
-      return anythingChangedEver;
     }
 
     void SolveAllTypeConstraints(string printableContext) {
@@ -98,7 +95,7 @@ namespace Microsoft.Dafny {
       });
       PrintList("Guarded constraints", guardedConstraints, gc => gc.Kind);
       PrintList("Default-type advice", defaultAdvice, advice => {
-        return $"{advice.PreType} ~-~-> {advice.What.ToString().ToLower()}";
+        return $"{advice.PreType} ~-~-> {advice.WhatString}";
       });
       PrintList("Post-inference confirmations", confirmations, c => {
         return $"{TokToShortLocation(c.tok)}: {c.Check} {c.PreType}: {c.ErrorMessage()}";
@@ -317,6 +314,8 @@ namespace Microsoft.Dafny {
       public readonly PreType PreType;
       public readonly AdviceTarget What;
 
+      public string WhatString => What.ToString().ToLower();
+
       public Advice(PreType preType, AdviceTarget advice) {
         PreType = preType;
         What = advice;
@@ -339,7 +338,7 @@ namespace Microsoft.Dafny {
       foreach (var advice in defaultAdvice) {
         var preType = advice.PreType.Normalize();
         if (preType is PreTypeProxy proxy) {
-          Console.WriteLine($"    DEBUG: acting on advice, setting {proxy} := {advice.What}");
+          Console.WriteLine($"    DEBUG: acting on advice, setting {proxy} := {advice.WhatString}");
 
           Type StringDecl() {
             var s = resolver.moduleInfo.TopLevels["string"];
@@ -353,7 +352,8 @@ namespace Microsoft.Dafny {
             AdviceTarget.Real => Type2PreType(Type.Real),
             AdviceTarget.String => Type2PreType(StringDecl()),
           };
-          anythingChanged |= proxy.Set(target);
+          proxy.Set(target);
+          anythingChanged = true;
         }
       }
       return anythingChanged;
