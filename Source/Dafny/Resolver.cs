@@ -12954,7 +12954,6 @@ namespace Microsoft.Dafny {
       // First, resolve all LHS's and expression-looking RHS's.
       int errorCountBeforeCheckingLhs = reporter.Count(ErrorLevel.Error);
 
-      var lhsNameSet = new HashSet<string>();  // used to check for duplicate identifiers on the left (full duplication checking for references and the like is done during verification)
       foreach (var lhs in s.Lhss) {
         var ec = reporter.Count(ErrorLevel.Error);
         ResolveExpression(lhs, new ResolveOpts(codeContext, true));
