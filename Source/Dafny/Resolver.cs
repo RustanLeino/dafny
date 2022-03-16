@@ -13023,6 +13023,7 @@ namespace Microsoft.Dafny {
           reporter.Error(MessageSource.Resolver, update, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment", update.Lhss.Count, update.Rhss.Count);
         } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
           // add the statements here in a sequence, but don't use that sequence later for translation (instead, should translate properly as multi-assignment)
+          Contract.Assert(update.ResolvedStatements.Count == update.Lhss.Count); update.ResolvedStatements.Clear(); // clear what pre-type resolution did
           for (int i = 0; i < update.Lhss.Count; i++) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[i].Resolved, update.Rhss[i]);
             update.ResolvedStatements.Add(a);
@@ -16661,7 +16662,7 @@ namespace Microsoft.Dafny {
       return isFunctionReturnValue;
     }
 
-    class MethodCallInformation {
+    public class MethodCallInformation {
       public readonly IToken Tok;
       public readonly MemberSelectExpr Callee;
       public readonly List<ActualBinding> ActualParameters;

@@ -308,9 +308,9 @@ namespace Microsoft.Dafny {
       } else if (stmt is VarDeclPattern) {
         VarDeclPattern s = (VarDeclPattern)stmt;
         foreach (var local in s.LocalVars) {
-          int prevErrorCount = reporter.Count(ErrorLevel.Error);
+          int prevErrorCount = ErrorCount;
           ResolveType(local.Tok, local.OptionalType, codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
-          if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+          if (ErrorCount == prevErrorCount) {
             local.type = local.OptionalType;
           } else {
             local.type = new InferredTypeProxy();
@@ -369,11 +369,11 @@ namespace Microsoft.Dafny {
         } else {
           CheckIsLvalue(lhs, codeContext);
         }
-        Type lhsType = s.Lhs.Type;
+        var lhsPreType = s.Lhs.PreType;
         if (s.Rhs is ExprRhs) {
           var rr = (ExprRhs)s.Rhs;
           ResolveExpression(rr.Expr, new Resolver.ResolveOpts(codeContext, true));
-          AddAssignableConstraint(Type2PreType(lhsType), Type2PreType(rr.Expr.Type), stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
+          AddAssignableConstraint(lhsPreType, rr.Expr.PreType, stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
         } else if (s.Rhs is TypeRhs) {
           var rr = (TypeRhs)s.Rhs;
 #if SOON
@@ -438,7 +438,7 @@ namespace Microsoft.Dafny {
           ConstrainTypeExprBool(whileS.Guard, "condition is expected to be of type bool, but is {0}");
         } else if (s is ForLoopStmt forS) {
           var loopIndex = forS.LoopIndex;
-          int prevErrorCount = reporter.Count(ErrorLevel.Error);
+          int prevErrorCount = ErrorCount;
           ResolveType(loopIndex.Tok, loopIndex.Type, codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           var err = new TypeConstraint.ErrorMsgWithToken(loopIndex.Tok, "index variable is expected to be of an integer type (got {0})", loopIndex.Type);
           ConstrainToIntegerType(loopIndex.Tok, loopIndex.Type, false, err);
@@ -505,7 +505,7 @@ namespace Microsoft.Dafny {
       } else if (stmt is ForallStmt) {
         var s = (ForallStmt)stmt;
 
-        int prevErrorCount = reporter.Count(ErrorLevel.Error);
+        int prevErrorCount = ErrorCount;
         scope.PushMarker();
         foreach (BoundVar v in s.BoundVars) {
           ScopePushAndReport(scope, v, "local-variable");
@@ -535,7 +535,7 @@ namespace Microsoft.Dafny {
         }
         scope.PopMarker();
 
-        if (prevErrorCount == reporter.Count(ErrorLevel.Error)) {
+        if (prevErrorCount == ErrorCount) {
           // determine the Kind and run some additional checks on the body
           if (s.Ens.Count != 0) {
             // The only supported kind with ensures clauses is Proof.
@@ -602,7 +602,7 @@ namespace Microsoft.Dafny {
         }
 
       } else if (stmt is CalcStmt) {
-        var prevErrorCount = reporter.Count(ErrorLevel.Error);
+        var prevErrorCount = ErrorCount;
         CalcStmt s = (CalcStmt)stmt;
         // figure out s.Op
         Contract.Assert(s.Op == null);  // it hasn't been set yet
@@ -668,7 +668,7 @@ namespace Microsoft.Dafny {
           loopStack = prevLoopStack;
 
         }
-        if (prevErrorCount == reporter.Count(ErrorLevel.Error) && s.Lines.Count > 0) {
+        if (prevErrorCount == ErrorCount && s.Lines.Count > 0) {
           // do not build Result from the lines if there were errors, as it might be ill-typed and produce unnecessary resolution errors
           var resultOp = s.StepOps.Aggregate(s.Op, (op0, op1) => op1 == null ? op0 : op0.ResultOp(op1));
           s.Result = resultOp.StepExpr(s.Lines.First(), s.Lines.Last());
@@ -677,7 +677,7 @@ namespace Microsoft.Dafny {
         }
         ResolveExpression(s.Result, new Resolver.ResolveOpts(codeContext, true));
         Contract.Assert(s.Result != null);
-        Contract.Assert(prevErrorCount != reporter.Count(ErrorLevel.Error) || s.Steps.Count == s.Hints.Count);
+        Contract.Assert(prevErrorCount != ErrorCount || s.Steps.Count == s.Hints.Count);
 
       } else if (stmt is MatchStmt) {
         ResolveMatchStmt((MatchStmt)stmt, codeContext);
@@ -702,33 +702,154 @@ namespace Microsoft.Dafny {
     private void ResolveConcreteUpdateStmt(ConcreteUpdateStatement s, ICodeContext codeContext) {
       Contract.Requires(s != null);
       Contract.Requires(codeContext != null);
-#if SOON
       // First, resolve all LHS's and expression-looking RHS's.
-      int errorCountBeforeCheckingLhs = reporter.Count(ErrorLevel.Error);
+      int errorCountBeforeCheckingLhs = ErrorCount;
 
-      var lhsNameSet = new HashSet<string>();  // used to check for duplicate identifiers on the left (full duplication checking for references and the like is done during verification)
       foreach (var lhs in s.Lhss) {
-        var ec = reporter.Count(ErrorLevel.Error);
-        ResolveExpression(lhs, new ResolveOpts(codeContext, true));
-        if (ec == reporter.Count(ErrorLevel.Error)) {
-          if (lhs is SeqSelectExpr && !((SeqSelectExpr)lhs).SelectOne) {
-            reporter.Error(MessageSource.Resolver, lhs, "cannot assign to a range of array elements (try the 'forall' statement)");
+        var ec = ErrorCount;
+        ResolveExpression(lhs, new Resolver.ResolveOpts(codeContext, true));
+        if (ec == ErrorCount) {
+          if (lhs is SeqSelectExpr sseLhs && !sseLhs.SelectOne) {
+            ReportError(lhs, "cannot assign to a range of array elements (try a 'forall' statement)");
           }
         }
       }
 
       // Resolve RHSs
-      if (s is AssignSuchThatStmt) {
-        ResolveAssignSuchThatStmt((AssignSuchThatStmt)s, codeContext);
-      } else if (s is UpdateStmt) {
-        ResolveUpdateStmt((UpdateStmt)s, codeContext, errorCountBeforeCheckingLhs);
-      } else if (s is AssignOrReturnStmt) {
-        ResolveAssignOrReturnStmt((AssignOrReturnStmt)s, codeContext);
+      if (s is AssignSuchThatStmt assignSuchThatStmt) {
+        ResolveAssignSuchThatStmt(assignSuchThatStmt, codeContext);
+      } else if (s is UpdateStmt updateStatement) {
+        ResolveUpdateStmt(updateStatement, codeContext, errorCountBeforeCheckingLhs);
+      } else if (s is AssignOrReturnStmt assignOrReturnStmt) {
+        ResolveAssignOrReturnStmt(assignOrReturnStmt, codeContext);
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();
       }
-      ResolveAttributes(s, new ResolveOpts(codeContext, true)); // TODO: hasn't this already been done, at the top of ResolveStatement?
-#endif
+      ResolveAttributes(s, new Resolver.ResolveOpts(codeContext, true), false); // TODO: hasn't this already been done, at the top of ResolveStatement?
+    }
+
+    /// <summary>
+    /// Resolve the RHSs and entire UpdateStmt (LHSs should already have been checked by the caller).
+    /// errorCountBeforeCheckingLhs is passed in so that this method can determine if any resolution errors were found during
+    /// LHS or RHS checking, because only if no errors were found is update.ResolvedStmt changed.
+    /// </summary>
+    private void ResolveUpdateStmt(UpdateStmt update, ICodeContext codeContext, int errorCountBeforeCheckingLhs) {
+      Contract.Requires(update != null);
+      Contract.Requires(codeContext != null);
+      IToken firstEffectfulRhs = null;
+      Resolver.MethodCallInformation methodCallInfo = null;
+      var j = 0;
+      foreach (var rhs in update.Rhss) {
+        bool isEffectful;
+        if (rhs is TypeRhs tr) {
+          ResolveTypeRhs(tr, update, codeContext);
+          isEffectful = tr.InitCall != null;
+        } else if (rhs is HavocRhs) {
+          isEffectful = false;
+        } else {
+          var er = (ExprRhs)rhs;
+          if (er.Expr is ApplySuffix applySuffix) {
+            var cRhs = ResolveApplySuffix(applySuffix, new Resolver.ResolveOpts(codeContext, true), true);
+            isEffectful = cRhs != null;
+            methodCallInfo = methodCallInfo ?? cRhs;
+          } else {
+            ResolveExpression(er.Expr, new Resolver.ResolveOpts(codeContext, true));
+            isEffectful = false;
+          }
+        }
+        if (isEffectful && firstEffectfulRhs == null) {
+          firstEffectfulRhs = rhs.Tok;
+        }
+        j++;
+      }
+
+      // figure out what kind of UpdateStmt this is
+      if (firstEffectfulRhs == null) {
+        if (update.Lhss.Count == 0) {
+          Contract.Assert(update.Rhss.Count == 1);  // guaranteed by the parser
+          ReportError(update, "expected method call, found expression");
+        } else if (update.Lhss.Count != update.Rhss.Count) {
+          ReportError(update, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment",
+            update.Lhss.Count, update.Rhss.Count);
+        } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+          // add the statements here in a sequence, but don't use that sequence later for translation (instead, should translate properly as multi-assignment)
+          for (var i = 0; i < update.Lhss.Count; i++) {
+            var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[i].Resolved, update.Rhss[i]);
+            update.ResolvedStatements.Add(a);
+          }
+        }
+
+      } else if (update.CanMutateKnownState) {
+        if (1 < update.Rhss.Count) {
+          ReportError(firstEffectfulRhs, "cannot have effectful parameter in multi-return statement.");
+        } else { // it might be ok, if it is a TypeRhs
+          Contract.Assert(update.Rhss.Count == 1);
+          if (methodCallInfo != null) {
+            ReportError(methodCallInfo.Tok, "cannot have method call in return statement.");
+          } else {
+            // we have a TypeRhs
+            var tr = (TypeRhs)update.Rhss[0];
+            Contract.Assert(tr.InitCall != null); // there were effects, so this must have been a call.
+            if (tr.CanAffectPreviouslyKnownExpressions) {
+              ReportError(tr.Tok, "can only have initialization methods which modify at most 'this'.");
+            } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+              var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[0].Resolved, tr);
+              update.ResolvedStatements.Add(a);
+            }
+          }
+        }
+
+      } else {
+        // if there was an effectful RHS, that must be the only RHS
+        if (update.Rhss.Count != 1) {
+          ReportError(firstEffectfulRhs, "an update statement is allowed an effectful RHS only if there is just one RHS");
+        } else if (methodCallInfo == null) {
+          // must be a single TypeRhs
+          if (update.Lhss.Count != 1) {
+            Contract.Assert(2 <= update.Lhss.Count);  // the parser allows 0 Lhss only if the whole statement looks like an expression (not a TypeRhs)
+            ReportError(update.Lhss[1].tok, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment",
+              update.Lhss.Count, update.Rhss.Count);
+          } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+            var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[0].Resolved, update.Rhss[0]);
+            update.ResolvedStatements.Add(a);
+          }
+        } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+          // a call statement
+          var resolvedLhss = update.Lhss.ConvertAll(ll => ll.Resolved);
+          var a = new CallStmt(methodCallInfo.Tok, update.EndTok, resolvedLhss, methodCallInfo.Callee, methodCallInfo.ActualParameters);
+          a.OriginalInitialLhs = update.OriginalInitialLhs;
+          update.ResolvedStatements.Add(a);
+        }
+      }
+
+      foreach (var a in update.ResolvedStatements) {
+        ResolveStatement(a, codeContext);
+      }
+    }
+
+    private void ResolveAssignSuchThatStmt(AssignSuchThatStmt s, ICodeContext codeContext) {
+      Contract.Requires(s != null);
+      Contract.Requires(codeContext != null);
+
+      var lhsSimpleVariables = new HashSet<IVariable>();
+      foreach (var lhs in s.Lhss) {
+        CheckIsLvalue(lhs.Resolved, codeContext);
+        if (lhs.Resolved is IdentifierExpr ide) {
+          if (lhsSimpleVariables.Contains(ide.Var)) {
+            // syntactically forbid duplicate simple-variables on the LHS
+            ReportError(lhs, $"variable '{ide.Var.Name}' occurs more than once as left-hand side of :|");
+          } else {
+            lhsSimpleVariables.Add(ide.Var);
+          }
+        }
+        // to ease in the verification of the existence check, only allow local variables as LHSs
+        if (s.AssumeToken == null && !(lhs.Resolved is IdentifierExpr)) {
+          ReportError(lhs, "an assign-such-that statement (without an 'assume' clause) currently only supports local-variable LHSs");
+        }
+      }
+
+      ResolveExpression(s.Expr, new Resolver.ResolveOpts(codeContext, true));
+      ConstrainTypeExprBool(s.Expr, "type of RHS of assign-such-that statement must be boolean (got {0})");
     }
 
     /// <summary>
@@ -775,10 +896,10 @@ namespace Microsoft.Dafny {
       Type firstType = null;
       Method call = null;
       if (s.Rhss != null && s.Rhss.Count != 0) {
-        ResolveExpression(s.Rhs, new ResolveOpts(codeContext, true));
+        ResolveExpression(s.Rhs, new Resolver.ResolveOpts(codeContext, true));
         firstType = s.Rhs.Type;
       } else if (s.Rhs is ApplySuffix asx) {
-        ResolveApplySuffix(asx, new ResolveOpts(codeContext, true), true);
+        ResolveApplySuffix(asx, new Resolver.ResolveOpts(codeContext, true), true);
         call = (asx.Lhs.Resolved as MemberSelectExpr)?.Member as Method;
         if (call != null) {
           // We're looking at a method call
@@ -786,19 +907,19 @@ namespace Microsoft.Dafny {
           if (call.Outs.Count != 0) {
             firstType = SubstType(call.Outs[0].Type, typeMap);
           } else {
-            reporter.Error(MessageSource.Resolver, s.Rhs.tok, "Expected {0} to have a Success/Failure output value, but the method returns nothing.", call.Name);
+            ReportError(s.Rhs.tok, "Expected {0} to have a Success/Failure output value, but the method returns nothing.", call.Name);
           }
         } else {
           // We're looking at a call to a function. Treat it like any other expression.
           firstType = asx.Type;
         }
       } else {
-        ResolveExpression(s.Rhs, new ResolveOpts(codeContext, true));
+        ResolveExpression(s.Rhs, new Resolver.ResolveOpts(codeContext, true));
         firstType = s.Rhs.Type;
       }
 
       if ((codeContext as Method).Outs.Count == 0 && s.KeywordToken == null) {
-        reporter.Error(MessageSource.Resolver, s.Tok, "A method containing a :- statement must have an out-parameter ({0})",
+        ReportError(s.Tok, "A method containing a :- statement must have an out-parameter ({0})",
           (codeContext as Method).Name);
         return;
       }
@@ -806,39 +927,39 @@ namespace Microsoft.Dafny {
         firstType = PartiallyResolveTypeForMemberSelection(s.Rhs.tok, firstType);
         if (firstType.AsTopLevelTypeWithMembers != null) {
           if (firstType.AsTopLevelTypeWithMembers.Members.Find(x => x.Name == "IsFailure") == null) {
-            reporter.Error(MessageSource.Resolver, s.Tok,
+            ReportError(s.Tok,
               "member IsFailure does not exist in {0}, in :- statement", firstType);
             return;
           }
           expectExtract = firstType.AsTopLevelTypeWithMembers.Members.Find(x => x.Name == "Extract") != null;
           if (expectExtract && call == null && s.Lhss.Count != 1 + s.Rhss.Count) {
-            reporter.Error(MessageSource.Resolver, s.Tok,
+            ReportError(s.Tok,
               "number of lhs ({0}) must match number of rhs ({1}) for a rhs type ({2}) with member Extract",
               s.Lhss.Count, 1 + s.Rhss.Count, firstType);
             return;
           } else if (expectExtract && call != null && s.Lhss.Count != call.Outs.Count) {
-            reporter.Error(MessageSource.Resolver, s.Tok,
+            ReportError(s.Tok,
               "wrong number of method result arguments (got {0}, expected {1}) for a rhs type ({2}) with member Extract",
               s.Lhss.Count, call.Outs.Count, firstType);
             return;
 
           } else if (!expectExtract && call == null && s.Lhss.Count != s.Rhss.Count) {
-            reporter.Error(MessageSource.Resolver, s.Tok,
+            ReportError(s.Tok,
               "number of lhs ({0}) must be one less than number of rhs ({1}) for a rhs type ({2}) without member Extract", s.Lhss.Count, 1 + s.Rhss.Count, firstType);
             return;
 
           } else if (!expectExtract && call != null && s.Lhss.Count != call.Outs.Count - 1) {
-            reporter.Error(MessageSource.Resolver, s.Tok,
+            ReportError(s.Tok,
               "wrong number of method result arguments (got {0}, expected {1}) for a rhs type ({2}) without member Extract", s.Lhss.Count, call.Outs.Count - 1, firstType);
             return;
           }
         } else {
-          reporter.Error(MessageSource.Resolver, s.Tok,
+          ReportError(s.Tok,
             $"The type of the first expression to the right of ':-' could not be determined to be a failure type (got '{firstType}')");
           return;
         }
       } else {
-        reporter.Error(MessageSource.Resolver, s.Tok,
+        ReportError(s.Tok,
           "Internal Error: Unknown failure type in :- statement");
         return;
       }
@@ -847,7 +968,7 @@ namespace Microsoft.Dafny {
       if (expectExtract) {
         Method caller = codeContext as Method;
         if (caller != null && caller.Outs.Count == 0 && s.KeywordToken == null) {
-          reporter.Error(MessageSource.Resolver, s.Rhs.tok, "Expected {0} to have a Success/Failure output value",
+          ReportError(s.Rhs.tok, "Expected {0} to have a Success/Failure output value",
             caller.Name);
           return;
         }
@@ -861,7 +982,7 @@ namespace Microsoft.Dafny {
           lhsExtract = new ExprDotName(lexr.tok, id, lexr.MemberName, lex == null ? null : lex.OptTypeArguments);
         } else if (lhsResolved is SeqSelectExpr lseq) {
           if (!lseq.SelectOne || lseq.E0 == null) {
-            reporter.Error(MessageSource.Resolver, s.Tok,
+            ReportError(s.Tok,
               "Element ranges not allowed as l-values");
             return;
           }
@@ -898,7 +1019,7 @@ namespace Microsoft.Dafny {
       }
       if (s.Rhss != null && s.Rhss.Count > 0) {
         if (lhss2.Count != rhss2.Count) {
-          reporter.Error(MessageSource.Resolver, s.Tok,
+          ReportError(s.Tok,
             "Mismatch in expected number of LHSs and RHSs");
           if (lhss2.Count < rhss2.Count) {
             rhss2.RemoveRange(lhss2.Count, rhss2.Count - lhss2.Count);
@@ -964,14 +1085,257 @@ namespace Microsoft.Dafny {
         // However the error message here is much clearer.
         var m = ResolveMember(s.Tok, firstType, "Extract", out _);
         if (m != null && m.IsGhost && !AssignStmt.LhsIsToGhostOrAutoGhost(lhs)) {
-          reporter.Error(MessageSource.Resolver, lhs.tok,
-            "The Extract member may not be ghost unless the initial LHS is ghost");
+          ReportError(lhs.tok, "The Extract member may not be ghost unless the initial LHS is ghost");
         }
       }
 
       s.ResolvedStatements.ForEach(a => ResolveStatement(a, codeContext));
       EnsureSupportsErrorHandling(s.Tok, firstType, expectExtract, s.KeywordToken != null);
 #endif
+    }
+
+    Type ResolveTypeRhs(TypeRhs rr, Statement stmt, ICodeContext codeContext) {
+      Contract.Requires(rr != null);
+      Contract.Requires(stmt != null);
+      Contract.Requires(codeContext != null);
+      Contract.Ensures(Contract.Result<Type>() != null);
+
+      if (rr.Type == null) {
+        if (rr.ArrayDimensions != null) {
+          // ---------- new T[EE]    OR    new T[EE] (elementInit)
+          Contract.Assert(rr.Bindings == null && rr.Path == null && rr.InitCall == null);
+          resolver.ResolveType(stmt.Tok, rr.EType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          int i = 0;
+          foreach (var dim in rr.ArrayDimensions) {
+            ResolveExpression(dim, new Resolver.ResolveOpts(codeContext, false));
+            var indexHint = rr.ArrayDimensions.Count == 1 ? "" : " for index " + i;
+            AddConfirmation("InIntFamily", dim.PreType, dim.tok,
+              $"new must use an integer-based expression for the array size (got {{0}}{indexHint})");
+            i++;
+          }
+          rr.Type = resolver.ResolvedArrayType(stmt.Tok, rr.ArrayDimensions.Count, rr.EType, codeContext, false);
+          if (rr.ElementInit != null) {
+#if SOON
+            ResolveExpression(rr.ElementInit, new Resolver.ResolveOpts(codeContext, false));
+            // Check
+            //     int^N -> rr.EType  :>  rr.ElementInit.Type
+            resolver.builtIns.CreateArrowTypeDecl(rr.ArrayDimensions.Count);  // TODO: should this be done already in the parser?
+            var args = new List<Type>();
+            for (var ii = 0; ii < rr.ArrayDimensions.Count; ii++) {
+              args.Add(resolver.builtIns.Nat());
+            }
+            var arrowType = new ArrowType(rr.ElementInit.tok, resolver.builtIns.ArrowTypeDecls[rr.ArrayDimensions.Count], args, rr.EType);
+            var lambdaType = rr.ElementInit.Type.AsArrowType;
+            if (lambdaType != null && lambdaType.TypeArgs[0] is InferredTypeProxy) {
+              (lambdaType.TypeArgs[0] as InferredTypeProxy).KeepConstraints = true;
+            }
+            string underscores;
+            if (rr.ArrayDimensions.Count == 1) {
+              underscores = "_";
+            } else {
+              underscores = "(" + Util.Comma(rr.ArrayDimensions.Count, x => "_") + ")";
+            }
+            var hintString = string.Format(" (perhaps write '{0} =>' in front of the expression you gave in order to make it an arrow type)", underscores);
+            ConstrainSubtypeRelation(arrowType, rr.ElementInit.Type, rr.ElementInit, "array-allocation initialization expression expected to have type '{0}' (instead got '{1}'){2}",
+              arrowType, rr.ElementInit.Type, new LazyString_OnTypeEquals(rr.EType, rr.ElementInit.Type, hintString));
+#endif
+          } else if (rr.InitDisplay != null) {
+            foreach (var v in rr.InitDisplay) {
+              ResolveExpression(v, new Resolver.ResolveOpts(codeContext, false));
+              AddAssignableConstraint(Type2PreType(rr.EType), v.PreType, v.tok, "initial value must be assignable to array's elements (expected '{0}', got '{1}')");
+            }
+          }
+        } else {
+          bool callsConstructor = false;
+          if (rr.Bindings == null) {
+            resolver.ResolveType(stmt.Tok, rr.EType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+            var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
+            if (cl != null && !(rr.EType.IsTraitType && !rr.EType.NormalizeExpand().IsObjectQ)) {
+              // life is good
+            } else {
+              ReportError(stmt, "new can be applied only to class types (got {0})", rr.EType);
+            }
+          } else {
+#if SOON
+            string initCallName = null;
+            IToken initCallTok = null;
+            // Resolve rr.Path and do one of three things:
+            // * If rr.Path denotes a type, then set EType,initCallName to rr.Path,"_ctor", which sets up a call to the anonymous constructor.
+            // * If the all-but-last components of rr.Path denote a type, then do EType,initCallName := allButLast(EType),last(EType)
+            // * Otherwise, report an error
+            var ret = ResolveTypeLenient(rr.Tok, rr.Path, codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null, true);
+            if (ret != null) {
+              // The all-but-last components of rr.Path denote a type (namely, ret.ReplacementType).
+              rr.EType = ret.ReplacementType;
+              initCallName = ret.LastComponent.SuffixName;
+              initCallTok = ret.LastComponent.tok;
+            } else {
+              // Either rr.Path resolved correctly as a type or there was no way to drop a last component to make it into something that looked
+              // like a type.  In either case, set EType,initCallName to Path,"_ctor" and continue.
+              rr.EType = rr.Path;
+              initCallName = "_ctor";
+              initCallTok = rr.Tok;
+            }
+            var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
+            if (cl == null || rr.EType.IsTraitType) {
+              ReportError(stmt, "new can be applied only to class types (got {0})", rr.EType);
+            } else {
+              // ---------- new C.Init(EE)
+              Contract.Assert(initCallName != null);
+              var prevErrorCount = ErrorCount;
+
+              // We want to create a MemberSelectExpr for the initializing method.  To do that, we create a throw-away receiver of the appropriate
+              // type, create an dot-suffix expression around this receiver, and then resolve it in the usual way for dot-suffix expressions.
+              var lhs = new ImplicitThisExpr_ConstructorCall(initCallTok) { Type = rr.EType };
+              var callLhs = new ExprDotName(initCallTok, lhs, initCallName, ret == null ? null : ret.LastComponent.OptTypeArguments);
+              ResolveDotSuffix(callLhs, true, rr.Bindings.ArgumentBindings, new Resolver.ResolveOpts(codeContext, true), true);
+              if (prevErrorCount == ErrorCount) {
+                Contract.Assert(callLhs.ResolvedExpression is MemberSelectExpr);  // since ResolveApplySuffix succeeded and call.Lhs denotes an expression (not a module or a type)
+                var methodSel = (MemberSelectExpr)callLhs.ResolvedExpression;
+                if (methodSel.Member is Method) {
+                  rr.InitCall = new CallStmt(initCallTok, stmt.EndTok, new List<Expression>(), methodSel, rr.Bindings.ArgumentBindings);
+                  ResolveCallStmt(rr.InitCall, codeContext, rr.EType);
+                  if (rr.InitCall.Method is Constructor) {
+                    callsConstructor = true;
+                  }
+                } else {
+                  ReportError(initCallTok, "object initialization must denote an initializing method or constructor ({0})", initCallName);
+                }
+              }
+            }
+#endif
+          }
+          if (rr.EType.IsRefType) {
+            var udt = rr.EType.NormalizeExpand() as UserDefinedType;
+            if (udt != null) {
+              var cl = (ClassDecl)udt.ResolvedClass;  // cast is guaranteed by the call to rr.EType.IsRefType above, together with the "rr.EType is UserDefinedType" test
+              if (!callsConstructor && !cl.IsObjectTrait && !udt.IsArrayType && (cl.HasConstructor || cl.EnclosingModuleDefinition != currentClass.EnclosingModuleDefinition)) {
+                ReportError(stmt, "when allocating an object of {1}type '{0}', one of its constructor methods must be called", cl.Name,
+                  cl.HasConstructor ? "" : "imported ");
+              }
+            }
+          }
+          rr.Type = rr.EType;
+        }
+      }
+      return rr.Type;
+    }
+
+    Resolver.MethodCallInformation ResolveApplySuffix(ApplySuffix e, Resolver.ResolveOpts opts, bool allowMethodCall) {
+      Contract.Requires(e != null);
+      Contract.Requires(opts != null);
+      Contract.Ensures(Contract.Result<Resolver.MethodCallInformation>() == null || allowMethodCall);
+#if SOON
+      Expression r = null;  // upon success, the expression to which the ApplySuffix resolves
+      var errorCount = ErrorCount;
+      if (e.Lhs is NameSegment) {
+        r = ResolveNameSegment((NameSegment)e.Lhs, true, e.Bindings.ArgumentBindings, opts, allowMethodCall);
+        // note, if r is non-null, then e.Args have been resolved and r is a resolved expression that incorporates e.Args
+      } else if (e.Lhs is ExprDotName) {
+        r = ResolveDotSuffix((ExprDotName)e.Lhs, true, e.Bindings.ArgumentBindings, opts, allowMethodCall);
+        // note, if r is non-null, then e.Args have been resolved and r is a resolved expression that incorporates e.Args
+      } else {
+        ResolveExpression(e.Lhs, opts);
+      }
+      if (e.Lhs.Type == null) {
+        // some error had been detected during the attempted resolution of e.Lhs
+        e.Lhs.Type = new InferredTypeProxy();
+      }
+      Label atLabel = null;
+      if (e.AtTok != null) {
+        atLabel = dominatingStatementLabels.Find(e.AtTok.val);
+        if (atLabel == null) {
+          ReportError(e.AtTok, "no label '{0}' in scope at this time", e.AtTok.val);
+        }
+      }
+      if (r == null) {
+        var improvedType = PartiallyResolveTypeForMemberSelection(e.Lhs.tok, e.Lhs.Type, "_#apply");
+        var fnType = improvedType.AsArrowType;
+        if (fnType == null) {
+          var lhs = e.Lhs.Resolved;
+          if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Module) {
+            ReportError(e.tok, "name of module ({0}) is used as a function", ((Resolver_IdentifierExpr)lhs).Decl.Name);
+          } else if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Type) {
+            var ri = (Resolver_IdentifierExpr)lhs;
+            ReportError(e.tok, "name of {0} ({1}) is used as a function", ri.Decl.WhatKind, ri.Decl.Name);
+          } else {
+            if (lhs is MemberSelectExpr mse && mse.Member is Method) {
+              if (atLabel != null) {
+                Contract.Assert(mse != null); // assured by the parser
+                if (mse.Member is TwoStateLemma) {
+                  mse.AtLabel = atLabel;
+                } else {
+                  ReportError(e.AtTok, "an @-label can only be applied to a two-state lemma");
+                }
+              }
+              if (allowMethodCall) {
+                Contract.Assert(!e.Bindings.WasResolved); // we expect that .Bindings has not yet been processed, so we use just .ArgumentBindings in the next line
+                var cRhs = new MethodCallInformation(e.tok, mse, e.Bindings.ArgumentBindings);
+                return cRhs;
+              } else {
+                ReportError(e.tok, "{0} call is not allowed to be used in an expression context ({1})", mse.Member.WhatKind, mse.Member.Name);
+              }
+            } else if (lhs != null) {  // if e.Lhs.Resolved is null, then e.Lhs was not successfully resolved and an error has already been reported
+              ReportError(e.tok, "non-function expression (of type {0}) is called with parameters", e.Lhs.Type);
+            }
+          }
+          // resolve the arguments, even in the presence of the errors above
+          foreach (var binding in e.Bindings.ArgumentBindings) {
+            ResolveExpression(binding.Actual, opts);
+          }
+        } else {
+          var mse = e.Lhs is NameSegment || e.Lhs is ExprDotName ? e.Lhs.Resolved as MemberSelectExpr : null;
+          var callee = mse == null ? null : mse.Member as Function;
+          if (atLabel != null && !(callee is TwoStateFunction)) {
+            RreportError(e.AtTok, "an @-label can only be applied to a two-state function");
+            atLabel = null;
+          }
+          if (callee != null) {
+            // produce a FunctionCallExpr instead of an ApplyExpr(MemberSelectExpr)
+            var rr = new FunctionCallExpr(e.Lhs.tok, callee.Name, mse.Obj, e.tok, e.Bindings, atLabel);
+            rr.Function = callee;
+            rr.TypeApplication_AtEnclosingClass = mse.TypeApplication_AtEnclosingClass;
+            rr.TypeApplication_JustFunction = mse.TypeApplication_JustMember;
+            var typeMap = BuildTypeArgumentSubstitute(mse.TypeArgumentSubstitutionsAtMemberDeclaration());
+            ResolveActualParameters(rr.Bindings, callee.Formals, e.tok, callee, opts, typeMap, callee.IsStatic ? null : mse.Obj);
+            rr.Type = SubstType(callee.ResultType, typeMap);
+            if (errorCount == errorCount) {
+              Contract.Assert(!(mse.Obj is StaticReceiverExpr) || callee.IsStatic);  // this should have been checked already
+              Contract.Assert(callee.Formals.Count == rr.Args.Count);  // this should have been checked already
+            }
+            // further bookkeeping
+            if (callee is ExtremePredicate) {
+              ((ExtremePredicate)callee).Uses.Add(rr);
+            }
+            AddCallGraphEdge(opts.codeContext, callee, rr, IsFunctionReturnValue(callee, e.Bindings.ArgumentBindings, opts));
+            r = rr;
+          } else {
+            List<Formal> formals;
+            if (callee != null) {
+              formals = callee.Formals;
+            } else {
+              formals = new List<Formal>();
+              for (var i = 0; i < fnType.Args.Count; i++) {
+                var argType = fnType.Args[i];
+                var formal = new ImplicitFormal(e.tok, "_#p" + i, argType, true, false);
+                formals.Add(formal);
+              }
+            }
+            ResolveActualParameters(e.Bindings, formals, e.tok, fnType, opts, new Dictionary<TypeParameter, Type>(), null);
+            r = new ApplyExpr(e.Lhs.tok, e.Lhs, e.Args);
+            r.Type = fnType.Result;
+          }
+        }
+      }
+      if (r == null) {
+        // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .Type
+        e.Type = new InferredTypeProxy();
+      } else {
+        e.ResolvedExpression = r;
+        e.Type = r.Type;
+      }
+#endif
+      return null;
     }
 
     /// <summary>

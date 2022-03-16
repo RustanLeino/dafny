@@ -150,10 +150,12 @@ namespace Microsoft.Dafny {
 
         if (e.Type is Resolver_IdentifierExpr.ResolverType_Module) {
           ReportError(e.tok, "name of module ({0}) is used as a variable", e.Name);
-          e.ResetTypeAssignment();  // the rest of type checking assumes actual types
+          e.ResetTypeAssignment(); // the rest of type checking assumes actual types
+          e.PreType = CreatePreTypeProxy(); // the rest of type checking assumes actual types
         } else if (e.Type is Resolver_IdentifierExpr.ResolverType_Type) {
           ReportError(e.tok, "name of type ({0}) is used as a variable", e.Name);
-          e.ResetTypeAssignment();  // the rest of type checking assumes actual types
+          e.ResetTypeAssignment(); // the rest of type checking assumes actual types
+          e.PreType = CreatePreTypeProxy(); // the rest of type checking assumes actual types
         }
 
 #if TODO
@@ -913,8 +915,12 @@ namespace Microsoft.Dafny {
             return null;
           }
         }
-        r = new IdentifierExpr(expr.tok, v);
-        r.PreType = Type2PreType(r.Type);
+        if (v.PreType == null) {
+          v.PreType = Type2PreType(v.Type);
+        }
+        r = new IdentifierExpr(expr.tok, v) {
+          PreType = v.PreType
+        };
       } else if (currentClass is TopLevelDeclWithMembers cl && resolver.classMembers.TryGetValue(cl, out var members) &&
                  members.TryGetValue(name, out member)) {
         // ----- 1. member of the enclosing class
