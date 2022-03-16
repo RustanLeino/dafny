@@ -9018,7 +9018,7 @@ namespace Microsoft.Dafny {
 
     [Pure]
     public bool WasResolved() {
-      return Type != null;
+      return PreType != null || Type != null;
     }
 
     public Expression Resolved {

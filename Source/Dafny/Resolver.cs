@@ -16019,6 +16019,9 @@ namespace Microsoft.Dafny {
           }
         }
         r = new IdentifierExpr(expr.tok, v);
+        if (expr.ResolvedExpression is IdentifierExpr preTypeInference) {
+          r.PreType = preTypeInference.PreType;
+        }
       } else if (currentClass is TopLevelDeclWithMembers cl && classMembers.TryGetValue(cl, out members) && members.TryGetValue(name, out member)) {
         // ----- 1. member of the enclosing class
         Expression receiver;

@@ -135,19 +135,21 @@ namespace Microsoft.Dafny {
           expr.PreType = new DPreType(BuiltInTypeDecl("seq"), argTypes);
         }
 
-#if SOON
       } else if (expr is MapDisplayExpr) {
-        MapDisplayExpr e = (MapDisplayExpr)expr;
-        Type domainType = new InferredTypeProxy();
-        Type rangeType = new InferredTypeProxy();
+        var e = (MapDisplayExpr)expr;
+        var domainPreType = CreatePreTypeProxy();
+        var rangePreType = CreatePreTypeProxy();
         foreach (ExpressionPair p in e.Elements) {
           ResolveExpression(p.A, opts);
-          ConstrainSubtypeRelation(domainType, p.A.Type, p.A.tok, "All elements of display must have some common supertype (got {0}, but needed type or type of previous elements is {1})", p.A.Type, domainType);
+          AddSubtypeConstraint(domainPreType, p.A.PreType, p.A.tok,
+            "All elements of display must have some common supertype (got {1}, but needed type or type of previous elements is {0})");
           ResolveExpression(p.B, opts);
-          ConstrainSubtypeRelation(rangeType, p.B.Type, p.B.tok, "All elements of display must have some common supertype (got {0}, but needed type or type of previous elements is {1})", p.B.Type, rangeType);
+          AddSubtypeConstraint(rangePreType, p.B.PreType, p.B.tok,
+            "All elements of display must have some common supertype (got {1}, but needed type or type of previous elements is {0})");
         }
-        expr.Type = new MapType(e.Finite, domainType, rangeType);
-#endif
+        var argTypes = new List<PreType>() { domainPreType, rangePreType };
+        expr.PreType = new DPreType(BuiltInTypeDecl(e.Finite ? "map" : "imap"), argTypes);
+
       } else if (expr is NameSegment) {
         var e = (NameSegment)expr;
         ResolveNameSegment(e, true, null, opts, false);
@@ -1021,8 +1023,8 @@ namespace Microsoft.Dafny {
         expr.PreType = CreatePreTypeProxy();
       } else {
         expr.ResolvedExpression = r;
-        expr.Type = r.Type.UseInternalSynonym();
-        expr.PreType = Type2PreType(expr.Type);
+        // TODO: do we need something analogous to this for pre-types?  expr.Type = r.Type.UseInternalSynonym();
+        expr.PreType = r.PreType;
       }
       return rWithArgs;
     }
