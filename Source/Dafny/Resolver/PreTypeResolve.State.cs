@@ -80,96 +80,6 @@ namespace Microsoft.Dafny {
       ClearState();
     }
 
-    bool ApplySubtypeConstraints() {
-      // TODO
-      return false;
-    }
-
-    bool ApplyComparableConstraints() {
-      // TODO
-      return false;
-    }
-
-    bool ApplyGuardedConstraints() {
-      // TODO
-      return false;
-    }
-
-    bool ApplyDefaultAdvice() {
-      bool anythingChanged = false;
-      foreach (var advice in defaultAdvice) {
-        var preType = advice.PreType.Normalize();
-        if (preType is PreTypeProxy proxy) {
-          Console.WriteLine($"    DEBUG: acting on advice, setting {proxy} := {advice.What}");
-
-          Type StringDecl() {
-            var s = resolver.moduleInfo.TopLevels["string"];
-            return new UserDefinedType(s.tok, s.Name, s, new List<Type>());
-          }
-
-          var target = advice.What switch {
-            AdviceTarget.Bool => Type2PreType(Type.Bool),
-            AdviceTarget.Char => Type2PreType(Type.Char),
-            AdviceTarget.Int => Type2PreType(Type.Int),
-            AdviceTarget.Real => Type2PreType(Type.Real),
-            AdviceTarget.String => Type2PreType(StringDecl()),
-          };
-          anythingChanged |= proxy.Set(target);
-        }
-      }
-      return anythingChanged;
-    }
-
-    void ConfirmTypeConstraints() {
-      foreach (var c in confirmations) {
-        var okay = true;
-        var preType = c.PreType.Normalize();
-        if (preType is PreTypeProxy) {
-          okay = false;
-        } else {
-          var pt = (DPreType)preType;
-          // TODO: the following should also handle newtype's; this can be done by "normalizing" pt to get to the base of any newtype
-          switch (c.Check) {
-            case "InIntFamily":
-              okay = pt.Decl.Name == "int";
-              break;
-            case "InRealFamily":
-              okay = pt.Decl.Name == "real";
-              break;
-            case "InBoolFamily":
-              okay = pt.Decl.Name == "bool";
-              break;
-            case "InCharFamily":
-              okay = pt.Decl.Name == "char";
-              break;
-            case "InSeqFamily":
-              okay = pt.Decl.Name == "seq";
-              break;
-            case "IsNullableRefType":
-              okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
-              break;
-            case "IntLikeOrBitvector":
-              if (pt.Decl.Name == "int") {
-                okay = true;
-              } else if (pt.Decl.Name.StartsWith("bv")) {
-                var bits = pt.Decl.Name.Substring(2);
-                okay = bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
-              } else {
-                okay = false;
-              }
-              break;
-
-            default:
-              Contract.Assert(false); // unexpected case
-              throw new cce.UnreachableException();
-          }
-        }
-        if (!okay) {
-          ReportError(c.tok, c.ErrorMessage());
-        }
-      }
-    }
-
     void ClearState() {
       subtypeConstraints.Clear();
       comparableConstraints.Clear();
@@ -284,6 +194,11 @@ namespace Microsoft.Dafny {
       AddSubtypeConstraint(lhs, rhs, tok, errMsgFormat);
     }
 
+    bool ApplySubtypeConstraints() {
+      // TODO
+      return false;
+    }
+
     // ---------------------------------------- Comparable constraints ----------------------------------------
 
     class ComparableConstraint : PreTypeStateWithErrorMessage {
@@ -315,6 +230,11 @@ namespace Microsoft.Dafny {
       comparableConstraints.Add(new ComparableConstraint(a, b, tok, errorFormatString));
     }
 
+    bool ApplyComparableConstraints() {
+      // TODO
+      return false;
+    }
+
     // ---------------------------------------- Guarded constraints ----------------------------------------
 
     class GuardedConstraint {
@@ -331,6 +251,11 @@ namespace Microsoft.Dafny {
     void AddGuardedConstraint(string kind) {
       Contract.Requires(kind != null);
       guardedConstraints.Add(new GuardedConstraint(kind));
+    }
+
+    bool ApplyGuardedConstraints() {
+      // TODO
+      return false;
     }
 
     // ---------------------------------------- Advice ----------------------------------------
@@ -354,6 +279,31 @@ namespace Microsoft.Dafny {
     void AddDefaultAdvice(PreType preType, AdviceTarget advice) {
       Contract.Requires(preType != null);
       defaultAdvice.Add(new Advice(preType, advice));
+    }
+
+    bool ApplyDefaultAdvice() {
+      bool anythingChanged = false;
+      foreach (var advice in defaultAdvice) {
+        var preType = advice.PreType.Normalize();
+        if (preType is PreTypeProxy proxy) {
+          Console.WriteLine($"    DEBUG: acting on advice, setting {proxy} := {advice.What}");
+
+          Type StringDecl() {
+            var s = resolver.moduleInfo.TopLevels["string"];
+            return new UserDefinedType(s.tok, s.Name, s, new List<Type>());
+          }
+
+          var target = advice.What switch {
+            AdviceTarget.Bool => Type2PreType(Type.Bool),
+            AdviceTarget.Char => Type2PreType(Type.Char),
+            AdviceTarget.Int => Type2PreType(Type.Int),
+            AdviceTarget.Real => Type2PreType(Type.Real),
+            AdviceTarget.String => Type2PreType(StringDecl()),
+          };
+          anythingChanged |= proxy.Set(target);
+        }
+      }
+      return anythingChanged;
     }
 
     // ---------------------------------------- Post-inference confirmations ----------------------------------------
@@ -385,6 +335,56 @@ namespace Microsoft.Dafny {
       Contract.Requires(tok != null);
       Contract.Requires(errorFormatString != null);
       confirmations.Add(new Confirmation(check, preType, tok, errorFormatString));
+    }
+
+    void ConfirmTypeConstraints() {
+      foreach (var c in confirmations) {
+        var okay = true;
+        var preType = c.PreType.Normalize();
+        if (preType is PreTypeProxy) {
+          okay = false;
+        } else {
+          var pt = (DPreType)preType;
+          // TODO: the following should also handle newtype's; this can be done by "normalizing" pt to get to the base of any newtype
+          switch (c.Check) {
+            case "InIntFamily":
+              okay = pt.Decl.Name == "int";
+              break;
+            case "InRealFamily":
+              okay = pt.Decl.Name == "real";
+              break;
+            case "InBoolFamily":
+              okay = pt.Decl.Name == "bool";
+              break;
+            case "InCharFamily":
+              okay = pt.Decl.Name == "char";
+              break;
+            case "InSeqFamily":
+              okay = pt.Decl.Name == "seq";
+              break;
+            case "IsNullableRefType":
+              okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
+              break;
+            case "IntLikeOrBitvector":
+              if (pt.Decl.Name == "int") {
+                okay = true;
+              } else if (pt.Decl.Name.StartsWith("bv")) {
+                var bits = pt.Decl.Name.Substring(2);
+                okay = bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
+              } else {
+                okay = false;
+              }
+              break;
+
+            default:
+              Contract.Assert(false); // unexpected case
+              throw new cce.UnreachableException();
+          }
+        }
+        if (!okay) {
+          ReportError(c.tok, c.ErrorMessage());
+        }
+      }
     }
   }
 }
