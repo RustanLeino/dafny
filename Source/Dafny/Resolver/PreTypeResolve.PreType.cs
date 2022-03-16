@@ -82,5 +82,9 @@ namespace Microsoft.Dafny {
       }
       return false;
     }
+
+    public bool HasTraitSupertypes() {
+      return Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0;
+    }
   }
 }

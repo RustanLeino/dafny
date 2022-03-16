@@ -101,26 +101,42 @@ namespace Microsoft.Dafny {
         return $"{advice.PreType} ~-~-> {advice.What.ToString().ToLower()}";
       });
       PrintList("Post-inference confirmations", confirmations, c => {
-        return $"{c.tok.filename}({c.tok.line},{c.tok.col}): {c.Check} {c.PreType}: {c.ErrorMessage()}";
+        return $"{TokToShortLocation(c.tok)}: {c.Check} {c.PreType}: {c.ErrorMessage()}";
       });
+    }
+
+    public static string TokToShortLocation(IToken tok) {
+      return $"{System.IO.Path.GetFileName(tok.filename)}({tok.line},{tok.col})";
     }
 
     void PrintList<T>(string rubric, List<T> list, Func<T, string> formatter) {
       Console.WriteLine($"    {rubric}:");
       foreach (var t in list) {
-        Console.WriteLine($"        {formatter(t)}");
+        var info = $"        {formatter(t)}";
+        if (t is PreTypeStateWithErrorMessage preTypeStateWithErrorMessage && !(preTypeStateWithErrorMessage is Confirmation)) {
+          info +=
+            new string(' ', Math.Max(30 - info.Length, 0)) +
+            $"  {TokToShortLocation(preTypeStateWithErrorMessage.tok)}: {preTypeStateWithErrorMessage.ErrorMessage()}";
+        }
+        Console.WriteLine(info);
       }
     }
 
     // ---------------------------------------- Equality constraints ----------------------------------------
 
-    void AddEqualityConstraint(PreType a, PreType b, Expression exprForToken, string msgFormat) {
+    void AddEqualityConstraint(PreType a, PreType b, IToken tok, string msgFormat) {
       if (a.Normalize() is PreTypeProxy pa && !Occurs(pa, b)) {
         pa.Set(b);
       } else if (b.Normalize() is PreTypeProxy pb && !Occurs(pb, a)) {
         pb.Set(a);
+      } else if (a.Normalize() is DPreType da && b.Normalize() is DPreType db && da.Decl == db.Decl) {
+        Contract.Assert(da.Arguments.Count == db.Arguments.Count);
+        for (var i = 0; i < da.Arguments.Count; i++) {
+          // TODO: should the error message in the following line be more specific?
+          AddEqualityConstraint(da.Arguments[i], db.Arguments[i], tok, msgFormat);
+        }
       } else {
-        ReportError(exprForToken, msgFormat, a, b);
+        ReportError(tok, msgFormat, a, b);
       }
     }
 
@@ -143,7 +159,7 @@ namespace Microsoft.Dafny {
 
     abstract class PreTypeStateWithErrorMessage {
       public readonly IToken tok;
-      protected readonly string errorFormatString;
+      public readonly string ErrorFormatString;
 
       public abstract string ErrorMessage();
 
@@ -151,7 +167,7 @@ namespace Microsoft.Dafny {
         Contract.Requires(tok != null);
         Contract.Requires(errorFormatString != null);
         this.tok = tok;
-        this.errorFormatString = errorFormatString;
+        this.ErrorFormatString = errorFormatString;
       }
     }
 
@@ -162,7 +178,7 @@ namespace Microsoft.Dafny {
       public readonly PreType Sub;
 
       public override string ErrorMessage() {
-        return string.Format(errorFormatString, Super, Sub);
+        return string.Format(ErrorFormatString, Super, Sub);
       }
 
       public SubtypeConstraint(PreType super, PreType sub, IToken tok, string errorFormatString)
@@ -195,8 +211,45 @@ namespace Microsoft.Dafny {
     }
 
     bool ApplySubtypeConstraints() {
-      // TODO
-      return false;
+      if (subtypeConstraints.Count == 0) {
+        // common special case
+        return false;
+      }
+      var constraints = subtypeConstraints;
+      subtypeConstraints = new();
+      var anythingChanged = false;
+      foreach (var constraint in constraints) {
+        var used = false;
+        var super = constraint.Super.Normalize();
+        var sub = constraint.Sub.Normalize();
+        if (super is DPreType ptSuper) {
+          if (ptSuper.Decl is TraitDecl) {
+            // TODO
+          } else {
+            // "sub" is constrained to be equal to "super"
+            Console.WriteLine($"    DEBUG: converting {super} :> {sub} to equality constraint");
+            AddEqualityConstraint(super, sub, constraint.tok, constraint.ErrorFormatString);
+            used = true;
+          }
+        } else if (sub is DPreType ptSub) {
+          if (ptSub.HasTraitSupertypes()) {
+            // TODO
+          } else {
+            // "super" is constrained to be equal to "sub"
+            Console.WriteLine($"    DEBUG: converting {super} :> {sub} to equality constraint");
+            AddEqualityConstraint(super, sub, constraint.tok, constraint.ErrorFormatString);
+            used = true;
+          }
+        } else {
+          // both are proxies
+        }
+        if (used) {
+          anythingChanged = true;
+        } else {
+          subtypeConstraints.Add(constraint);
+        }
+      }
+      return anythingChanged;
     }
 
     // ---------------------------------------- Comparable constraints ----------------------------------------
@@ -206,7 +259,7 @@ namespace Microsoft.Dafny {
       public readonly PreType B;
 
       public override string ErrorMessage() {
-        return string.Format(errorFormatString, A, B);
+        return string.Format(ErrorFormatString, A, B);
       }
 
       public ComparableConstraint(PreType a, PreType b, IToken tok, string errorFormatString)
@@ -313,7 +366,7 @@ namespace Microsoft.Dafny {
       public readonly PreType PreType;
 
       public override string ErrorMessage() {
-        return string.Format(errorFormatString, PreType);
+        return string.Format(ErrorFormatString, PreType);
       }
 
       public Confirmation(string check, PreType preType, IToken tok, string errorFormatString)
@@ -345,31 +398,31 @@ namespace Microsoft.Dafny {
           okay = false;
         } else {
           var pt = (DPreType)preType;
-          // TODO: the following should also handle newtype's; this can be done by "normalizing" pt to get to the base of any newtype
+          var familyDeclName = AncestorDecl(pt.Decl).Name;
           switch (c.Check) {
             case "InIntFamily":
-              okay = pt.Decl.Name == "int";
+              okay = familyDeclName == "int";
               break;
             case "InRealFamily":
-              okay = pt.Decl.Name == "real";
+              okay = familyDeclName == "real";
               break;
             case "InBoolFamily":
-              okay = pt.Decl.Name == "bool";
+              okay = familyDeclName == "bool";
               break;
             case "InCharFamily":
-              okay = pt.Decl.Name == "char";
+              okay = familyDeclName == "char";
               break;
             case "InSeqFamily":
-              okay = pt.Decl.Name == "seq";
+              okay = familyDeclName == "seq";
               break;
             case "IsNullableRefType":
               okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
               break;
             case "IntLikeOrBitvector":
-              if (pt.Decl.Name == "int") {
+              if (familyDeclName == "int") {
                 okay = true;
-              } else if (pt.Decl.Name.StartsWith("bv")) {
-                var bits = pt.Decl.Name.Substring(2);
+              } else if (familyDeclName.StartsWith("bv")) {
+                var bits = familyDeclName.Substring(2);
                 okay = bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
               } else {
                 okay = false;

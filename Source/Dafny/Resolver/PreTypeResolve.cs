@@ -51,7 +51,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
-      resolver.Reporter.Error(MessageSource.Resolver, tok, msg, args);
+      resolver.Reporter.Error(MessageSource.Resolver, tok, "PRE-TYPE: " + msg, args);
     }
     
     private void ReportWarning(Bpl.IToken tok, string msg, params object[] args) {
@@ -111,6 +111,18 @@ namespace Microsoft.Dafny {
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected type
       }
+    }
+
+
+    /// <summary>
+    /// Returns the non-newtype ancestor of "cecl".
+    /// </summary>
+    public TopLevelDecl AncestorDecl(TopLevelDecl decl) {
+      while (decl is NewtypeDecl newtypeDecl) {
+        var parent = Type2PreType(newtypeDecl.BaseType);
+        decl = ((DPreType)parent).Decl;
+      }
+      return decl;
     }
 
     public PreTypeResolver(Resolver resolver) {

@@ -539,11 +539,11 @@ namespace Microsoft.Dafny {
           case BinaryExpr.Opcode.Mod:
             expr.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
-            AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
+            AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "type of " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
             AddEqualityConstraint(expr.PreType, e.E0.PreType,
-              expr, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
+              expr.tok, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
             AddEqualityConstraint(expr.PreType, e.E1.PreType,
-              expr, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
+              expr.tok, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
             break;
 
 #if SOON
