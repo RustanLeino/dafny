@@ -116,22 +116,26 @@ namespace Microsoft.Dafny {
         } else {
           ResolveDatatypeValue(opts, dtv, (DatatypeDecl)d, null);
         }
+#endif
 
       } else if (expr is DisplayExpression) {
-        DisplayExpression e = (DisplayExpression)expr;
-        Type elementType = new InferredTypeProxy() { KeepConstraints = true };
-        foreach (Expression ee in e.Elements) {
+        var e = (DisplayExpression)expr;
+        var elementPreType = CreatePreTypeProxy();
+        foreach (var ee in e.Elements) {
           ResolveExpression(ee, opts);
-          ConstrainSubtypeRelation(elementType, ee.Type, ee.tok, "All elements of display must have some common supertype (got {0}, but needed type or type of previous elements is {1})", ee.Type, elementType);
+          AddSubtypeConstraint(elementPreType, ee.PreType, ee.tok,
+            "All elements of display must have some common supertype (got {1}, but needed type or type of previous elements is {0})");
         }
-        if (expr is SetDisplayExpr) {
-          var se = (SetDisplayExpr)expr;
-          expr.Type = new SetType(se.Finite, elementType);
+        var argTypes = new List<PreType>() { elementPreType };
+        if (expr is SetDisplayExpr setDisplayExpr) {
+          expr.PreType = new DPreType(BuiltInTypeDecl(setDisplayExpr.Finite ? "set" : "iset"), argTypes);
         } else if (expr is MultiSetDisplayExpr) {
-          expr.Type = new MultiSetType(elementType);
+          expr.PreType = new DPreType(BuiltInTypeDecl("multiset"), argTypes);
         } else {
-          expr.Type = new SeqType(elementType);
+          expr.PreType = new DPreType(BuiltInTypeDecl("seq"), argTypes);
         }
+
+#if SOON
       } else if (expr is MapDisplayExpr) {
         MapDisplayExpr e = (MapDisplayExpr)expr;
         Type domainType = new InferredTypeProxy();

@@ -63,9 +63,13 @@ namespace Microsoft.Dafny {
 
     private readonly Dictionary<string, TopLevelDecl> preTypeBuiltins = new();
 
-    TopLevelDecl BuiltInTypeDecl(string name, int typeParameterCount = 0) {
+    TopLevelDecl BuiltInTypeDecl(string name) {
       Contract.Requires(name != null);
       if (!preTypeBuiltins.TryGetValue(name, out var decl)) {
+        var typeParameterCount =
+          name == "map" || name == "imap" ? 2 :
+          name == "set" || name == "iset" || name == "seq" || name == "multiset" ? 1 :
+          0;
         decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, typeParameterCount, _ => false, null);
         preTypeBuiltins.Add(name, decl);
       }
@@ -95,14 +99,13 @@ namespace Microsoft.Dafny {
       } else if (type is BitvectorType bitvectorType) {
         return new DPreType(BuiltInTypeDecl("bv" + bitvectorType.Width));
       } else if (type is CollectionType) {
-        var typeParameterCount = type is MapType ? 2 : 1;
         var name =
           type is SetType st ? (st.Finite ? "set" : "iset") :
           type is MultiSetType ? "multiset" :
           type is MapType mt ? (mt.Finite ? "map" : "imap") :
           "seq";
         var args = type.TypeArgs.ConvertAll(Type2PreType);
-        return new DPreType(BuiltInTypeDecl(name, typeParameterCount), args);
+        return new DPreType(BuiltInTypeDecl(name), args);
       } else if (type is UserDefinedType udt) {
         var args = type.TypeArgs.ConvertAll(Type2PreType);
         return new DPreType(udt.ResolvedClass, args);
@@ -832,10 +835,8 @@ namespace Microsoft.Dafny {
         if (expr.PreType == null) {
           preTypeResolver.ReportWarning(expr.tok, $"sanity check WARNING: no pre-type was computed");
         } else {
-          var pt0 = expr.PreType.Normalize();
-          var pt1 = preTypeResolver.Type2PreType(expr.Type).Normalize();
-          if (!pt0.Same(pt1)) {
-            preTypeResolver.ReportError(expr.tok, $"SANITY CHECK FAILED: pre-type '{pt0}' does not correspond to type '{expr.Type}'");
+          if (!PreType.Same(expr.PreType, preTypeResolver.Type2PreType(expr.Type))) {
+            preTypeResolver.ReportError(expr.tok, $"SANITY CHECK FAILED: pre-type '{expr.PreType}' does not correspond to type '{expr.Type}'");
           }
         }
       }

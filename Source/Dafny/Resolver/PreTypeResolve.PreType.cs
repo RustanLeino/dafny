@@ -18,7 +18,20 @@ namespace Microsoft.Dafny {
       return t;
     }
 
-    public abstract bool Same(PreType preType);
+    public static bool Same(PreType a, PreType b) {
+      a = a.Normalize();
+      b = b.Normalize();
+      if (a is DPreType ap && b is DPreType bp && ap.Decl == bp.Decl) {
+        Contract.Assert(ap.Arguments.Count == bp.Arguments.Count);
+        for (var i = 0; i < ap.Arguments.Count; i++) {
+          if (!Same(ap.Arguments[i], bp.Arguments[i])) {
+            return false;
+          }
+        }
+        return true;
+      }
+      return a == b;
+    }
   }
 
   public class PreTypeProxy : PreType {
@@ -31,10 +44,6 @@ namespace Microsoft.Dafny {
 
     public override string ToString() {
       return PT != null ? PT.ToString() : "?" + UniqueId;
-    }
-
-    public override bool Same(PreType preType) {
-      return this == preType;
     }
 
     /// <summary>
@@ -68,18 +77,6 @@ namespace Microsoft.Dafny {
         return name;
       }
       return $"{name}<{Util.Comma(Arguments, arg => arg.ToString())}>";
-    }
-
-    public override bool Same(PreType preType) {
-      if (preType is DPreType that && this.Decl == that.Decl && this.Arguments.Count == that.Arguments.Count) {
-        for (var i = 0; i < this.Arguments.Count; i++) {
-          if (!this.Arguments[i].Equals(that.Arguments[i])) {
-            return false;
-          }
-        }
-        return true;
-      }
-      return false;
     }
 
     public bool HasTraitSupertypes() {

@@ -294,7 +294,7 @@ namespace Microsoft.Dafny {
         foreach (var local in s.Locals) {
           if (Attributes.Contains(local.Attributes, "assumption")) {
             if (currentMethod != null) {
-              ConstrainSubtypeRelation(Type2PreType(Type.Bool), Type2PreType(local.type), local.Tok, "assumption variable must be of type 'bool'");
+              AddSubtypeConstraint(Type2PreType(Type.Bool), Type2PreType(local.type), local.Tok, "assumption variable must be of type 'bool'");
               if (!local.IsGhost) {
                 ReportError(local.Tok, "assumption variable must be ghost");
               }

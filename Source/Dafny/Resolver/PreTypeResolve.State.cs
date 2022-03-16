@@ -36,17 +36,6 @@ namespace Microsoft.Dafny {
 #endif
     }
 
-    private void ConstrainSubtypeRelation(PreType super, PreType sub, IToken tok, string msg, params object[] msgArgs) {
-      Contract.Requires(sub != null);
-      Contract.Requires(super != null);
-      Contract.Requires(tok != null);
-      Contract.Requires(msg != null);
-      Contract.Requires(msgArgs != null);
-#if TODO
-      return ConstrainSubtypeRelation(super, sub, new TypeConstraint.ErrorMsgWithToken(tok, msg, msgArgs));
-#endif
-    }
-
     /// <summary>
     /// Solves or simplifies as many type constraints as possible.
     /// If "allowDecisions" is "false", then no decisions, only determined inferences, are made; this mode is
