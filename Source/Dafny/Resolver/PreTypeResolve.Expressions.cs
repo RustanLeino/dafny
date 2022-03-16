@@ -57,27 +57,27 @@ namespace Microsoft.Dafny {
         } else {
           if (e.Value == null) {
             e.PreType = CreatePreTypeProxy();
-            AddConfirmation(e.tok, "IsNullableRefType", e.PreType, "type of 'null' is a reference type, but it is used as {0}");
+            AddConfirmation("IsNullableRefType", e.PreType, e.tok, "type of 'null' is a reference type, but it is used as {0}");
           } else if (e.Value is BigInteger) {
             e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Int);
-            AddConfirmation(e.tok, "InIntFamily", e.PreType, "integer literal used as if it had type {0}");
+            AddConfirmation("InIntFamily", e.PreType, e.tok, "integer literal used as if it had type {0}");
           } else if (e.Value is BaseTypes.BigDec) {
             e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Real);
-            AddConfirmation(e.tok, "InRealFamily", e.PreType, "type of real literal is used as {0}"); // TODO: make this error message have the same form as the one for integers above
+            AddConfirmation("InRealFamily", e.PreType, e.tok, "type of real literal is used as {0}"); // TODO: make this error message have the same form as the one for integers above
           } else if (e.Value is bool) {
             e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Bool);
-            AddConfirmation(e.tok, "InBoolFamily", e.PreType, "boolean literal used as if it had type {0}");
+            AddConfirmation("InBoolFamily", e.PreType, e.tok, "boolean literal used as if it had type {0}");
           } else if (e is CharLiteralExpr) {
             e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.Char);
-            AddConfirmation(e.tok, "InCharFamily", e.PreType, "character literal used as if it had type {0}");
+            AddConfirmation("InCharFamily", e.PreType, e.tok, "character literal used as if it had type {0}");
           } else if (e is StringLiteralExpr) {
             e.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(e.PreType, AdviceTarget.String);
-            AddConfirmation(e.tok, "InSeqFamily", e.PreType, "string literal used as if it had type {0}");
+            AddConfirmation("InSeqFamily", e.PreType, e.tok, "string literal used as if it had type {0}");
           } else {
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected literal type
           }
@@ -539,7 +539,7 @@ namespace Microsoft.Dafny {
           case BinaryExpr.Opcode.Mod:
             expr.PreType = CreatePreTypeProxy();
             AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
-            AddConfirmation(expr.tok, "IntLikeOrBitvector", expr.PreType, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
+            AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
             AddEqualityConstraint(expr.PreType, e.E0.PreType,
               expr, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
             AddEqualityConstraint(expr.PreType, e.E1.PreType,

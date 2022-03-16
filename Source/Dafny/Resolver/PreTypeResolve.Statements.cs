@@ -373,7 +373,7 @@ namespace Microsoft.Dafny {
         if (s.Rhs is ExprRhs) {
           var rr = (ExprRhs)s.Rhs;
           ResolveExpression(rr.Expr, new Resolver.ResolveOpts(codeContext, true));
-          AddAssignableConstraint(stmt.Tok, lhsType, rr.Expr.Type, "RHS (of type {1}) not assignable to LHS (of type {0})");
+          AddAssignableConstraint(Type2PreType(lhsType), Type2PreType(rr.Expr.Type), stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
         } else if (s.Rhs is TypeRhs) {
           var rr = (TypeRhs)s.Rhs;
 #if SOON

@@ -47,16 +47,6 @@ namespace Microsoft.Dafny {
 #endif
     }
 
-    void AddAssignableConstraint(Bpl.IToken tok, Type lhs, Type rhs, string errMsgFormat) {
-      Contract.Requires(tok != null);
-      Contract.Requires(lhs != null);
-      Contract.Requires(rhs != null);
-      Contract.Requires(errMsgFormat != null);
-#if TODO
-      AddXConstraint(tok, "Assignable", lhs, rhs, errMsgFormat);
-#endif
-    }
-
     /// <summary>
     /// Solves or simplifies as many type constraints as possible.
     /// If "allowDecisions" is "false", then no decisions, only determined inferences, are made; this mode is
@@ -175,7 +165,7 @@ namespace Microsoft.Dafny {
           }
         }
         if (!okay) {
-          ReportError(c.Tok, c.ErrorFormat, c.Args);
+          ReportError(c.tok, c.ErrorMessage());
         }
       }
     }
@@ -191,7 +181,7 @@ namespace Microsoft.Dafny {
     public void PrintTypeInferenceState(string/*?*/ header = null) {
       Console.WriteLine("*** Type inference state ***{0}", header == null ? "" : $" {header} ");
       PrintList("Subtype constraints", subtypeConstraints, stc => {
-        return $"{stc.Super} >: {stc.Sub}";
+        return $"{stc.Super} :> {stc.Sub}";
       });
       PrintList("Comparable constraints", comparableConstraints, cc => {
         return $"{cc.A} ~~ {cc.B}";
@@ -201,8 +191,7 @@ namespace Microsoft.Dafny {
         return $"{advice.PreType} ~-~-> {advice.What.ToString().ToLower()}";
       });
       PrintList("Post-inference confirmations", confirmations, c => {
-        var tok = c.Tok;
-        return $"{tok.filename}({tok.line},{tok.col}): {c.Check} {c.PreType}: {string.Format(c.ErrorFormat, c.Args)}";
+        return $"{c.tok.filename}({c.tok.line},{c.tok.col}): {c.Check} {c.PreType}: {c.ErrorMessage()}";
       });
     }
 
@@ -240,13 +229,38 @@ namespace Microsoft.Dafny {
       }
     }
 
+    // ---------------------------------------- State with error message ----------------------------------------
+
+    abstract class PreTypeStateWithErrorMessage {
+      public readonly IToken tok;
+      protected readonly string errorFormatString;
+
+      public abstract string ErrorMessage();
+
+      public PreTypeStateWithErrorMessage(IToken tok, string errorFormatString) {
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatString != null);
+        this.tok = tok;
+        this.errorFormatString = errorFormatString;
+      }
+    }
+
     // ---------------------------------------- Subtype constraints ----------------------------------------
 
-    class SubtypeConstraint {
+    class SubtypeConstraint : PreTypeStateWithErrorMessage {
       public readonly PreType Super;
       public readonly PreType Sub;
 
-      public SubtypeConstraint(PreType super, PreType sub) {
+      public override string ErrorMessage() {
+        return string.Format(errorFormatString, Super, Sub);
+      }
+
+      public SubtypeConstraint(PreType super, PreType sub, IToken tok, string errorFormatString)
+        : base(tok, errorFormatString) {
+        Contract.Requires(super != null);
+        Contract.Requires(sub != null);
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatString != null);
         Super = super;
         Sub = sub;
       }
@@ -254,19 +268,38 @@ namespace Microsoft.Dafny {
 
     private List<SubtypeConstraint> subtypeConstraints = new();
 
-    void AddSubtypeConstraint(PreType super, PreType sub) {
+    void AddSubtypeConstraint(PreType super, PreType sub, IToken tok, string errorFormatString) {
       Contract.Requires(super != null);
       Contract.Requires(sub != null);
-      subtypeConstraints.Add(new SubtypeConstraint(super, sub));
+      Contract.Requires(tok != null);
+      Contract.Requires(errorFormatString != null);
+      subtypeConstraints.Add(new SubtypeConstraint(super, sub, tok, errorFormatString));
+    }
+
+    void AddAssignableConstraint(PreType lhs, PreType rhs, IToken tok, string errMsgFormat) {
+      Contract.Requires(lhs != null);
+      Contract.Requires(rhs != null);
+      Contract.Requires(tok != null);
+      Contract.Requires(errMsgFormat != null);
+      AddSubtypeConstraint(lhs, rhs, tok, errMsgFormat);
     }
 
     // ---------------------------------------- Comparable constraints ----------------------------------------
 
-    class ComparableConstraint {
+    class ComparableConstraint : PreTypeStateWithErrorMessage {
       public readonly PreType A;
       public readonly PreType B;
 
-      public ComparableConstraint(PreType a, PreType b) {
+      public override string ErrorMessage() {
+        return string.Format(errorFormatString, A, B);
+      }
+
+      public ComparableConstraint(PreType a, PreType b, IToken tok, string errorFormatString)
+        : base(tok, errorFormatString) {
+        Contract.Requires(a != null);
+        Contract.Requires(b != null);
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatString != null);
         A = a;
         B = b;
       }
@@ -274,10 +307,12 @@ namespace Microsoft.Dafny {
 
     private List<ComparableConstraint> comparableConstraints = new();
 
-    void AddComparableConstraint(PreType a, PreType b) {
+    void AddComparableConstraint(PreType a, PreType b, IToken tok, string errorFormatString) {
       Contract.Requires(a != null);
       Contract.Requires(b != null);
-      comparableConstraints.Add(new ComparableConstraint(a, b));
+      Contract.Requires(tok != null);
+      Contract.Requires(errorFormatString != null);
+      comparableConstraints.Add(new ComparableConstraint(a, b, tok, errorFormatString));
     }
 
     // ---------------------------------------- Guarded constraints ----------------------------------------
@@ -286,6 +321,7 @@ namespace Microsoft.Dafny {
       public readonly string Kind;
 
       public GuardedConstraint(string kind) {
+        Contract.Requires(kind != null);
         Kind = kind;
       }
     }
@@ -322,26 +358,33 @@ namespace Microsoft.Dafny {
 
     // ---------------------------------------- Post-inference confirmations ----------------------------------------
 
-    class Confirmation {
-      public readonly Bpl.IToken Tok;
+    class Confirmation : PreTypeStateWithErrorMessage {
       public readonly string Check;
       public readonly PreType PreType;
-      public readonly string ErrorFormat;
-      public readonly object[] Args;
 
-      public Confirmation(Bpl.IToken tok, string check, PreType preType, string errorFormat, params object[] args) {
-        Tok = tok;
+      public override string ErrorMessage() {
+        return string.Format(errorFormatString, PreType);
+      }
+
+      public Confirmation(string check, PreType preType, IToken tok, string errorFormatString)
+        : base(tok, errorFormatString) {
+        Contract.Requires(check != null);
+        Contract.Requires(preType != null);
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatString != null);
         Check = check;
         PreType = preType;
-        ErrorFormat = errorFormat;
-        Args = args;
       }
     }
 
     private List<Confirmation> confirmations = new();
 
-    void AddConfirmation(Bpl.IToken tok, string check, PreType preType, string errorFormat) {
-      confirmations.Add(new Confirmation(tok, check, preType, errorFormat, preType));
+    void AddConfirmation(string check, PreType preType, IToken tok, string errorFormatString) {
+      Contract.Requires(check != null);
+      Contract.Requires(preType != null);
+      Contract.Requires(tok != null);
+      Contract.Requires(errorFormatString != null);
+      confirmations.Add(new Confirmation(check, preType, tok, errorFormatString));
     }
   }
 }
