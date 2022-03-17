@@ -530,13 +530,19 @@ namespace Microsoft.Dafny {
               ConstrainSubtypeRelation(expr.Type, e.E1.Type, expr.tok, "type of right argument to * ({0}) must agree with the result type ({1})", e.E1.Type, expr.Type);
             }
             break;
+#endif
 
           case BinaryExpr.Opcode.In:
           case BinaryExpr.Opcode.NotIn:
-            AddXConstraint(expr.tok, "Innable", e.E1.Type, e.E0.Type, "second argument to \"" + BinaryExpr.OpcodeString(e.Op) + "\" must be a set, multiset, or sequence with elements of type {1}, or a map with domain {1} (instead got {0})");
-            expr.Type = Type.Bool;
+            expr.PreType = CreatePreTypeProxy($"result of '{opString}' operation");
+            AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
+            AddConfirmation("InBoolFamily", expr.PreType, expr.tok, "type of " + opString + " must be a boolean (got {0})");
+            AddGuardedConstraint("Innable", expr.tok,
+              "second argument to '" + opString + "' must be a set, multiset, or sequence with elements of type {0}, or a map with domain {0} (instead got {1})",
+              e.E0.PreType, e.E1.PreType);
             break;
 
+#if SOON
           case BinaryExpr.Opcode.Div:
             expr.Type = new InferredTypeProxy();
             AddXConstraint(expr.tok, "NumericOrBitvector", expr.Type, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be numeric or bitvector types (got {0})");

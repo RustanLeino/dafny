@@ -84,7 +84,9 @@ namespace Microsoft.Dafny {
       PrintList("Comparable constraints", comparableConstraints, cc => {
         return $"{cc.A} ~~ {cc.B}";
       });
-      PrintList("Guarded constraints", guardedConstraints, gc => gc.Kind);
+      PrintList("Guarded constraints", guardedConstraints, gc => {
+        return gc.Kind + Util.Comma("", gc.Arguments, arg => $" {arg}");
+      });
       PrintList("Default-type advice", defaultAdvice, advice => {
         return $"{advice.PreType} ~-~-> {advice.WhatString}";
       });
@@ -292,25 +294,74 @@ namespace Microsoft.Dafny {
 
     // ---------------------------------------- Guarded constraints ----------------------------------------
 
-    class GuardedConstraint {
+    class GuardedConstraint : PreTypeStateWithErrorMessage {
       public readonly string Kind;
+      public readonly PreType[] Arguments;
 
-      public GuardedConstraint(string kind) {
+      public override string ErrorMessage() {
+        return string.Format(ErrorFormatString, Arguments);
+      }
+
+      public GuardedConstraint(string kind, IToken tok, string errorFormatString, params PreType[] arguments)
+        : base(tok, errorFormatString) {
         Contract.Requires(kind != null);
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatString != null);
         Kind = kind;
+        Arguments = arguments;
       }
     }
 
     private List<GuardedConstraint> guardedConstraints = new();
 
-    void AddGuardedConstraint(string kind) {
+    void AddGuardedConstraint(string kind, IToken tok, string errorFormatString, params PreType[] arguments) {
       Contract.Requires(kind != null);
-      guardedConstraints.Add(new GuardedConstraint(kind));
+      Contract.Requires(tok != null);
+      Contract.Requires(errorFormatString != null);
+      guardedConstraints.Add(new GuardedConstraint(kind, tok, errorFormatString, arguments));
     }
 
     bool ApplyGuardedConstraints() {
-      // TODO
-      return false;
+      if (guardedConstraints.Count == 0) {
+        // common special case
+        return false;
+      }
+      var constraints = guardedConstraints;
+      guardedConstraints = new();
+      var anythingChanged = false;
+      foreach (var constraint in constraints) {
+        var used = false;
+        switch (constraint.Kind) {
+          case "Innable": {
+            // For "Innable x s", if s is known, then:
+            // if s == c<a> or s == c<a, b> where c is a collection type, then a :> x, else error.
+            Contract.Assert(constraint.Arguments.Length == 2);
+            var a0 = constraint.Arguments[0].Normalize();
+            var a1 = constraint.Arguments[1];
+            var coll = a1.UrAncestor(this).AsCollectionType();
+            if (coll != null) {
+              Console.WriteLine($"    DEBUG: guard applies: Innable {a0} {a1}");
+              AddSubtypeConstraint(coll.Arguments[0], a0, constraint.tok,
+                "expecting element type to be assignable to {0} (got {1})");
+              used = true;
+            } else if (a1.Normalize() is DPreType) {
+              // type head is determined and it isn't a collection type
+              ReportError(constraint.tok, constraint.ErrorMessage());
+              used = true;
+            }
+            break;
+          }
+          default:
+            Contract.Assert(false); // unexpected case
+            throw new cce.UnreachableException();
+        }
+        if (used) {
+          anythingChanged = true;
+        } else {
+          guardedConstraints.Add(constraint);
+        }
+      }
+      return anythingChanged;
     }
 
     // ---------------------------------------- Advice ----------------------------------------

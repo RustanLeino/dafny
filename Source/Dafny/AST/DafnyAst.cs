@@ -2863,7 +2863,7 @@ namespace Microsoft.Dafny {
     /// <summary>
     /// If "member" is non-null, then:
     ///   Return the upcast of "receiverType" that has base type "member.EnclosingClass".
-    ///   Assumes that "receiverType" normalizes to a UserDefinedFunction with a .ResolveClass that is a subtype
+    ///   Assumes that "receiverType" normalizes to a UserDefinedFunction with a .ResolvedClass that is a subtype
     ///   of "member.EnclosingClass".
     /// Otherwise:
     ///   Return "receiverType" (expanded).
@@ -2999,7 +2999,7 @@ namespace Microsoft.Dafny {
     public override string TypeName(ModuleDefinition context, bool parseAble) {
       Contract.Ensures(Contract.Result<string>() != null);
       if (BuiltIns.IsTupleTypeName(Name)) {
-        // Unfortunately, ResolveClass may be null, so Name is all we have.  Reverse-engineer the string name.
+        // Unfortunately, ResolvedClass may be null, so Name is all we have.  Reverse-engineer the string name.
         IEnumerable<bool> argumentGhostness = BuiltIns.ArgumentGhostnessFromString(Name, TypeArgs.Count);
         return "(" + Util.Comma(System.Linq.Enumerable.Zip(TypeArgs, argumentGhostness),
           (ty_u) => Resolver.GhostPrefix(ty_u.Item2) + ty_u.Item1.TypeName(context, parseAble)) + ")";

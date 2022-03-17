@@ -257,24 +257,24 @@ namespace Microsoft.Dafny {
           } else {
             local.type = new InferredTypeProxy();
           }
+          local.PreType = Type2PreType(local.Type, $"type of local variable '{local.Name}'");
         }
         // Resolve the UpdateStmt or AssignOrReturnStmt, if any
         if (s.Update is UpdateStmt || s.Update is AssignOrReturnStmt) {
-          var concreteUpdateStmt = (ConcreteUpdateStatement)s.Update;
           // resolve the LHS
-          Contract.Assert(concreteUpdateStmt.Lhss.Count == s.Locals.Count);
-          for (int i = 0; i < concreteUpdateStmt.Lhss.Count; i++) {
+          Contract.Assert(s.Update.Lhss.Count == s.Locals.Count);
+          for (int i = 0; i < s.Update.Lhss.Count; i++) {
             var local = s.Locals[i];
             // the cast on the next line is justified, because that's how the parser creates the VarDeclStmt
-            var lhs = (IdentifierExpr)concreteUpdateStmt.Lhss[i];
+            var lhs = (IdentifierExpr)s.Update.Lhss[i];
             Contract.Assert(lhs.PreType == null);  // not yet resolved
             lhs.Var = local;
-            lhs.PreType = Type2PreType(local.Type, $"value assigned to local variable '{local.Name}'");
+            lhs.PreType = local.PreType;
           }
-          if (concreteUpdateStmt is AssignOrReturnStmt assignOrReturnStmt) {
+          if (s.Update is AssignOrReturnStmt assignOrReturnStmt) {
             ResolveAssignOrReturnStmt(assignOrReturnStmt, codeContext);
           } else {
-            ResolveConcreteUpdateStmt(concreteUpdateStmt, codeContext);
+            ResolveConcreteUpdateStmt(s.Update, codeContext);
           }
         }
 

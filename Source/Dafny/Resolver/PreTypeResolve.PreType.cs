@@ -32,6 +32,54 @@ namespace Microsoft.Dafny {
       }
       return a == b;
     }
+
+    public PreType UrAncestor(PreTypeResolver ptResolver) {
+      Contract.Requires(ptResolver != null);
+      var pt = this;
+      while (true) {
+        pt = pt.Normalize();
+        if (pt is DPreType preType && preType.Decl is NewtypeDecl newtypeDecl) {
+          // expand the newtype into its base type
+          var subst = PreTypeSubstMap(newtypeDecl.TypeArgs, preType.Arguments);
+          var basePreType = ptResolver.Type2PreType(newtypeDecl.BaseType);
+          pt = basePreType.Substitute(subst);
+        } else {
+          // nothing more we can do
+          return pt;
+        }
+      }
+    }
+
+    public DPreType AsCollectionType() {
+      if (Normalize() is DPreType dp) {
+        switch (dp.Decl.Name) {
+          case "set":
+          case "iset":
+          case "seq":
+          case "multiset":
+          case "map":
+          case "imap":
+            return dp;
+          default:
+            break;
+        }
+      }
+      return null;
+    }
+
+    public static Dictionary<TypeParameter, PreType> PreTypeSubstMap(List<TypeParameter> parameters, List<PreType> arguments) {
+      Contract.Requires(parameters.Count == arguments.Count);
+      var subst = new Dictionary<TypeParameter, PreType>();
+      for (var i = 0; i < parameters.Count; i++) {
+        subst.Add(parameters[i], arguments[i]);
+      }
+      return subst;
+    }
+
+    /// <summary>
+    /// If the substitution has no effect, the return value is pointer-equal to 'this'
+    /// </summary>
+    public abstract PreType Substitute(Dictionary<TypeParameter, PreType> subst);
   }
 
   public class PreTypeProxy : PreType {
@@ -55,6 +103,10 @@ namespace Microsoft.Dafny {
       Contract.Requires(PT == null);
       Contract.Assert(PT == null); // make sure we get a run-time check for this important condition
       PT = target;
+    }
+
+    public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {
+      return this;
     }
   }
 
@@ -81,6 +133,33 @@ namespace Microsoft.Dafny {
 
     public bool HasTraitSupertypes() {
       return Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0;
+    }
+
+    public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {
+      if (Decl is TypeParameter typeParameter) {
+        Contract.Assert(Arguments.Count == 0);
+        return subst.GetValueOrDefault(typeParameter, this);
+      }
+
+      // apply substitutions to arguments
+      List<PreType> newArguments = null; // allocate the new list lazily
+      for (var i = 0; i < Arguments.Count; i++) {
+        var arg = Arguments[i];
+        var pt = arg.Substitute(subst);
+        if (pt != arg && newArguments == null) {
+          // lazily construct newArguments
+          newArguments = new();
+          // copy all previous items, all of which were unaffected by substitution
+          for (var j = 0; j < i; j++) {
+            newArguments.Add(Arguments[j]);
+          }
+        }
+        if (newArguments != null) {
+          newArguments.Add(pt);
+        }
+      }
+
+      return newArguments == null ? this : new DPreType(Decl, newArguments);
     }
   }
 }
