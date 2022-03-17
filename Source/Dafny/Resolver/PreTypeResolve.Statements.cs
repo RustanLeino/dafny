@@ -269,7 +269,7 @@ namespace Microsoft.Dafny {
             var lhs = (IdentifierExpr)concreteUpdateStmt.Lhss[i];
             Contract.Assert(lhs.PreType == null);  // not yet resolved
             lhs.Var = local;
-            lhs.PreType = Type2PreType(local.Type);
+            lhs.PreType = Type2PreType(local.Type, $"value assigned to local variable '{local.Name}'");
           }
           if (concreteUpdateStmt is AssignOrReturnStmt assignOrReturnStmt) {
             ResolveAssignOrReturnStmt(assignOrReturnStmt, codeContext);

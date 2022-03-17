@@ -78,11 +78,15 @@ namespace Microsoft.Dafny {
 
     private int typeProxyCount = 0; // used to give each PreTypeProxy a unique ID
 
-    public PreType CreatePreTypeProxy() {
-      return new PreTypeProxy(typeProxyCount++);
+    private readonly List<(PreTypeProxy, string)> allPreTypeProxies = new();
+
+    public PreType CreatePreTypeProxy(string description = null) {
+      var proxy = new PreTypeProxy(typeProxyCount++);
+      allPreTypeProxies.Add((proxy, description));
+      return proxy;
     }
 
-    public PreType Type2PreType(Type type) {
+    public PreType Type2PreType(Type type, string description = null) {
       Contract.Requires(type != null);
 
       type = type.NormalizeExpand();
@@ -104,13 +108,13 @@ namespace Microsoft.Dafny {
           type is MultiSetType ? "multiset" :
           type is MapType mt ? (mt.Finite ? "map" : "imap") :
           "seq";
-        var args = type.TypeArgs.ConvertAll(Type2PreType);
+        var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
         return new DPreType(BuiltInTypeDecl(name), args);
       } else if (type is UserDefinedType udt) {
-        var args = type.TypeArgs.ConvertAll(Type2PreType);
+        var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
         return new DPreType(udt.ResolvedClass, args);
       } else if (type is TypeProxy) {
-        return CreatePreTypeProxy();
+        return CreatePreTypeProxy(description);
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected type
       }

@@ -1107,6 +1107,12 @@ namespace Microsoft.Dafny {
       }
     }
 
+    public void PrintPreType(PreType preType) {
+      if (DafnyOptions.O.DafnyPrintResolvedFile != null) {
+        wr.Write($"/*{preType}*/");
+      }
+    }
+
     public static string TPCharacteristicsSuffix(TypeParameter.TypeParameterCharacteristics characteristics) {
       string s = null;
       if (characteristics.EqualitySupport == TypeParameter.EqualitySupportValue.Required ||
@@ -1526,6 +1532,7 @@ namespace Microsoft.Dafny {
           }
           wr.Write(" {0}", local.DisplayName);
           PrintType(": ", local.OptionalType);
+          PrintPreType(local.PreType);
           sep = ",";
         }
         if (s.Update != null) {
@@ -2627,6 +2634,7 @@ namespace Microsoft.Dafny {
           wr.Write("{0}{1}", sep, bv.DisplayName);
           sep = ", ";
           PrintType(": ", bv.Type);
+          PrintPreType(bv.PreType);
         }
         PrintAttributes(e.Attributes);
         wr.Write(" | ");
@@ -2647,6 +2655,7 @@ namespace Microsoft.Dafny {
           wr.Write("{0}{1}", sep, bv.DisplayName);
           sep = ", ";
           PrintType(": ", bv.Type);
+          PrintPreType(bv.PreType);
         }
         PrintAttributes(e.Attributes);
         wr.Write(" | ");
@@ -2813,6 +2822,7 @@ namespace Microsoft.Dafny {
         if (v.OptionalType is NonProxyType || DafnyOptions.O.DafnyPrintResolvedFile != null) {
           PrintType(": ", v.OptionalType);
         }
+        PrintPreType(v.PreType);
       } else {
         if (pat.Id.StartsWith(BuiltIns.TupleTypeCtorNamePrefix)) {
           Contract.Assert(pat.Arguments != null);
@@ -2870,6 +2880,7 @@ namespace Microsoft.Dafny {
       foreach (BoundVar bv in boundVars) {
         wr.Write("{0}{1}", sep, bv.DisplayName);
         PrintType(": ", bv.Type);
+        PrintPreType(bv.PreType);
         sep = ", ";
       }
       PrintAttributes(attrs);

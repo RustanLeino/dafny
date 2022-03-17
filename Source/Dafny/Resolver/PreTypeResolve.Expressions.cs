@@ -53,29 +53,29 @@ namespace Microsoft.Dafny {
 
         if (e is StaticReceiverExpr eStatic) {
           resolver.ResolveType(eStatic.tok, eStatic.UnresolvedType, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          eStatic.PreType = Type2PreType(eStatic.UnresolvedType);
+          eStatic.PreType = Type2PreType(eStatic.UnresolvedType, "static receiver type");
         } else {
           if (e.Value == null) {
-            e.PreType = CreatePreTypeProxy();
+            e.PreType = CreatePreTypeProxy("literal 'null'");
             AddConfirmation("IsNullableRefType", e.PreType, e.tok, "type of 'null' is a reference type, but it is used as {0}");
           } else if (e.Value is BigInteger) {
-            e.PreType = CreatePreTypeProxy();
+            e.PreType = CreatePreTypeProxy($"integer literal '{e.Value}'");
             AddDefaultAdvice(e.PreType, AdviceTarget.Int);
             AddConfirmation("InIntFamily", e.PreType, e.tok, "integer literal used as if it had type {0}");
           } else if (e.Value is BaseTypes.BigDec) {
-            e.PreType = CreatePreTypeProxy();
+            e.PreType = CreatePreTypeProxy($"real literal '{e.Value}'");
             AddDefaultAdvice(e.PreType, AdviceTarget.Real);
             AddConfirmation("InRealFamily", e.PreType, e.tok, "type of real literal is used as {0}"); // TODO: make this error message have the same form as the one for integers above
           } else if (e.Value is bool) {
-            e.PreType = CreatePreTypeProxy();
+            e.PreType = CreatePreTypeProxy($"boolean literal '{e.Value.ToString().ToLower()}'");
             AddDefaultAdvice(e.PreType, AdviceTarget.Bool);
             AddConfirmation("InBoolFamily", e.PreType, e.tok, "boolean literal used as if it had type {0}");
           } else if (e is CharLiteralExpr) {
-            e.PreType = CreatePreTypeProxy();
+            e.PreType = CreatePreTypeProxy($"character literal '{e.Value}'");
             AddDefaultAdvice(e.PreType, AdviceTarget.Char);
             AddConfirmation("InCharFamily", e.PreType, e.tok, "character literal used as if it had type {0}");
           } else if (e is StringLiteralExpr) {
-            e.PreType = CreatePreTypeProxy();
+            e.PreType = CreatePreTypeProxy($"string literal \"{e.Value}\"");
             AddDefaultAdvice(e.PreType, AdviceTarget.String);
             AddConfirmation("InSeqFamily", e.PreType, e.tok, "string literal used as if it had type {0}");
           } else {
@@ -91,14 +91,14 @@ namespace Microsoft.Dafny {
           // there's no type
         } else {
           var ty = Resolver.GetThisType(expr.tok, currentClass);  // do this regardless of scope.AllowInstance, for better error reporting
-          expr.PreType = Type2PreType(ty);
+          expr.PreType = Type2PreType(ty, "type of 'this'");
         }
 
       } else if (expr is IdentifierExpr) {
         var e = (IdentifierExpr)expr;
         e.Var = scope.Find(e.Name);
         if (e.Var != null) {
-          expr.PreType = Type2PreType(e.Var.Type);
+          expr.PreType = Type2PreType(e.Var.Type, $"type of identifier '{e.Var.Name}'");
         } else {
           ReportError(expr, "Identifier does not denote a local variable, parameter, or bound variable: {0}", e.Name);
         }
@@ -120,7 +120,7 @@ namespace Microsoft.Dafny {
 
       } else if (expr is DisplayExpression) {
         var e = (DisplayExpression)expr;
-        var elementPreType = CreatePreTypeProxy();
+        var elementPreType = CreatePreTypeProxy("display expression element type");
         foreach (var ee in e.Elements) {
           ResolveExpression(ee, opts);
           AddSubtypeConstraint(elementPreType, ee.PreType, ee.tok,
@@ -137,8 +137,8 @@ namespace Microsoft.Dafny {
 
       } else if (expr is MapDisplayExpr) {
         var e = (MapDisplayExpr)expr;
-        var domainPreType = CreatePreTypeProxy();
-        var rangePreType = CreatePreTypeProxy();
+        var domainPreType = CreatePreTypeProxy("map display expression domain type");
+        var rangePreType = CreatePreTypeProxy("map display expression range type");
         foreach (ExpressionPair p in e.Elements) {
           ResolveExpression(p.A, opts);
           AddSubtypeConstraint(domainPreType, p.A.PreType, p.A.tok,
@@ -545,7 +545,7 @@ namespace Microsoft.Dafny {
 
 #endif
           case BinaryExpr.Opcode.Mod:
-            expr.PreType = CreatePreTypeProxy();
+            expr.PreType = CreatePreTypeProxy("result of % operation");
             AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
             AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "type of " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
             AddEqualityConstraint(expr.PreType, e.E0.PreType,
@@ -922,7 +922,7 @@ namespace Microsoft.Dafny {
           }
         }
         if (v.PreType == null) {
-          v.PreType = Type2PreType(v.Type);
+          v.PreType = Type2PreType(v.Type, $"type of identifier '{name}'");
         }
         r = new IdentifierExpr(expr.tok, v) {
           PreType = v.PreType

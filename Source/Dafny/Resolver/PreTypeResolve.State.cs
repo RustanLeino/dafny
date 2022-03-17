@@ -62,6 +62,7 @@ namespace Microsoft.Dafny {
       if (ApplyDefaultAdvice()) {
         PartiallySolveTypeConstraints(null);
       }
+      PrintLegend();
       ConfirmTypeConstraints();
       ClearState();
     }
@@ -72,6 +73,7 @@ namespace Microsoft.Dafny {
       guardedConstraints.Clear();
       defaultAdvice.Clear();
       confirmations.Clear();
+      allPreTypeProxies.Clear();
     }
 
     public void PrintTypeInferenceState(string/*?*/ header = null) {
@@ -91,6 +93,13 @@ namespace Microsoft.Dafny {
       });
     }
 
+    void PrintLegend() {
+      PrintList("Legend", allPreTypeProxies, pair => {
+        var s = Pad($"?{pair.Item1.UniqueId}", 4) + pair.Item1;
+        return pair.Item2 == null ? s : $"{Pad(s, 20)}  {pair.Item2}";
+      });
+    }
+
     public static string TokToShortLocation(IToken tok) {
       return $"{System.IO.Path.GetFileName(tok.filename)}({tok.line},{tok.col})";
     }
@@ -100,12 +109,15 @@ namespace Microsoft.Dafny {
       foreach (var t in list) {
         var info = $"        {formatter(t)}";
         if (t is PreTypeStateWithErrorMessage preTypeStateWithErrorMessage && !(preTypeStateWithErrorMessage is Confirmation)) {
-          info +=
-            new string(' ', Math.Max(30 - info.Length, 0)) +
-            $"  {TokToShortLocation(preTypeStateWithErrorMessage.tok)}: {preTypeStateWithErrorMessage.ErrorMessage()}";
+          info = $"{Pad(info, 30)}  {TokToShortLocation(preTypeStateWithErrorMessage.tok)}: {preTypeStateWithErrorMessage.ErrorMessage()}";
         }
         Console.WriteLine(info);
       }
+    }
+
+    string Pad(string s, int minWidth) {
+      Contract.Requires(s != null);
+      return s + new string(' ', Math.Max(minWidth - s.Length, 0));
     }
 
     // ---------------------------------------- Equality constraints ----------------------------------------
