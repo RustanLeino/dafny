@@ -123,11 +123,15 @@ namespace Microsoft.Dafny {
     // ---------------------------------------- Equality constraints ----------------------------------------
 
     void AddEqualityConstraint(PreType a, PreType b, IToken tok, string msgFormat) {
-      if (a.Normalize() is PreTypeProxy pa && !Occurs(pa, b)) {
+      a = a.Normalize();
+      b = b.Normalize();
+      if (a == b) {
+        // we're already there
+      } else if (a is PreTypeProxy pa && !Occurs(pa, b)) {
         pa.Set(b);
-      } else if (b.Normalize() is PreTypeProxy pb && !Occurs(pb, a)) {
+      } else if (b is PreTypeProxy pb && !Occurs(pb, a)) {
         pb.Set(a);
-      } else if (a.Normalize() is DPreType da && b.Normalize() is DPreType db && da.Decl == db.Decl) {
+      } else if (a is DPreType da && b is DPreType db && da.Decl == db.Decl) {
         Contract.Assert(da.Arguments.Count == db.Arguments.Count);
         for (var i = 0; i < da.Arguments.Count; i++) {
           // TODO: should the error message in the following line be more specific?

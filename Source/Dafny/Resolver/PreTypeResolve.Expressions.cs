@@ -418,19 +418,24 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.E0, opts);
         ResolveExpression(e.E1, opts);
 
+        var opString = BinaryExpr.OpcodeString(e.Op);
         switch (e.Op) {
-#if SOON
           case BinaryExpr.Opcode.Iff:
           case BinaryExpr.Opcode.Imp:
           case BinaryExpr.Opcode.Exp:
           case BinaryExpr.Opcode.And:
           case BinaryExpr.Opcode.Or: {
-              ConstrainSubtypeRelation(Type.Bool, e.E0.Type, expr, "first argument to {0} must be of type bool (instead got {1})", BinaryExpr.OpcodeString(e.Op), e.E0.Type);
-              ConstrainSubtypeRelation(Type.Bool, e.E1.Type, expr, "second argument to {0} must be of type bool (instead got {1})", BinaryExpr.OpcodeString(e.Op), e.E1.Type);
-              expr.Type = Type.Bool;
-              break;
-            }
+            expr.PreType = CreatePreTypeProxy($"result of {opString} operation");
+            AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
+            AddConfirmation("InBoolFamily", expr.PreType, expr.tok, "type of " + opString + " must be a boolean (got {0})");
+            AddEqualityConstraint(expr.PreType, e.E0.PreType,
+              expr.tok, "type of left argument to " + opString + " ({1}) must agree with the result type ({0})");
+            AddEqualityConstraint(expr.PreType, e.E1.PreType,
+              expr.tok, "type of right argument to " + opString + " ({1}) must agree with the result type ({0})");
+            break;
+          }
 
+#if SOON
           case BinaryExpr.Opcode.Eq:
           case BinaryExpr.Opcode.Neq:
             AddXConstraint(expr.tok, "Equatable", e.E0.Type, e.E1.Type, "arguments must have comparable types (got {0} and {1})");
@@ -547,11 +552,11 @@ namespace Microsoft.Dafny {
           case BinaryExpr.Opcode.Mod:
             expr.PreType = CreatePreTypeProxy("result of % operation");
             AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
-            AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "type of " + BinaryExpr.OpcodeString(e.Op) + " must be integer-numeric or bitvector types (got {0})");
+            AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "type of " + opString + " must be integer-numeric or bitvector types (got {0})");
             AddEqualityConstraint(expr.PreType, e.E0.PreType,
-              expr.tok, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
+              expr.tok, "type of left argument to " + opString + " ({1}) must agree with the result type ({0})");
             AddEqualityConstraint(expr.PreType, e.E1.PreType,
-              expr.tok, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})");
+              expr.tok, "type of right argument to " + opString + " ({1}) must agree with the result type ({0})");
             break;
 
 #if SOON
