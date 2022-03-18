@@ -7,6 +7,7 @@
 
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
+using System.Linq;
 
 namespace Microsoft.Dafny {
   public abstract class PreType {
@@ -125,6 +126,9 @@ namespace Microsoft.Dafny {
 
     public override string ToString() {
       var name = Decl.Name;
+      if (IsReferenceTypeDecl(Decl)) {
+        name = name + "?";
+      }
       if (Arguments.Count == 0) {
         return name;
       }
@@ -132,7 +136,21 @@ namespace Microsoft.Dafny {
     }
 
     public bool HasTraitSupertypes() {
-      return Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0;
+      /*
+       * When traits can be used as supertypes for non-reference types (and "object" is an implicit parent trait of every
+       * class), then this method can be implemented by
+       *         return Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0;
+       * For now, every reference type except "object" has trait supertypes.
+       */
+      if (Decl is TraitDecl trait && trait.IsObjectTrait) {
+        return false;
+      }
+      return IsReferenceTypeDecl(Decl);
+    }
+
+    public static bool IsReferenceTypeDecl(TopLevelDecl decl) {
+      Contract.Requires(decl != null);
+      return decl is ClassDecl && !(decl is ArrowTypeDecl);
     }
 
     public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {

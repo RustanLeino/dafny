@@ -226,26 +226,58 @@ namespace Microsoft.Dafny {
         var used = false;
         var super = constraint.Super.Normalize();
         var sub = constraint.Sub.Normalize();
-        if (super is DPreType ptSuper) {
-          if (ptSuper.Decl is TraitDecl) {
-            // TODO
+        var ptSuper = super as DPreType;
+        var ptSub = sub as DPreType;
+        // In the following explanations, D is assumed to be a type with three
+        // type parameters, being co-variant, contra-variant, and non-variant, respectively.
+        if (ptSuper != null && ptSub != null) {
+          // We're looking at D<a,b,c> :> E<x,y>
+          // If E<x,y> can be rewritten as D<f(x,y), g(x,y), h(x,y)>, then
+          //     Constrain a :> f(x,y)
+          //     Constrain g(x,y) :> b
+          //     Constrain c == h(x,y)
+          // else report an error
+          var arguments = AdaptTypeArgumentsForParent(ptSuper.Decl, ptSub.Decl, ptSub.Arguments);
+          if (arguments != null) {
+            Contract.Assert(arguments.Count == ptSuper.Decl.TypeArgs.Count);
+            ConstrainTypeArguments(ptSuper.Decl.TypeArgs, ptSuper.Arguments, arguments, constraint.tok);
+            used = true;
           } else {
-            // "sub" is constrained to be equal to "super"
-            Console.WriteLine($"    DEBUG: converting {super} :> {sub} to equality constraint");
-            AddEqualityConstraint(super, sub, constraint.tok, constraint.ErrorFormatString);
+            ReportError(constraint.tok, constraint.ErrorMessage());
+          }
+        } else if (ptSuper != null) {
+          // We're looking at D<a,b,c> :> sub
+          // If the head of D has no proper subtypes (i.e., it is not a trait), then
+          //     Introduce alpha, beta
+          //     Constrain sub == D<alpha, beta, c>
+          //     Constrain a :> alpha
+          //     Constrain beta :> b
+          // else do nothing for now
+          if (!(ptSuper.Decl is TraitDecl)) {
+            var arguments = CreateProxiesForTypesAccordingToVariance(ptSuper.Decl.TypeArgs, ptSuper.Arguments);
+            var pt = new DPreType(ptSuper.Decl, arguments);
+            AddEqualityConstraint(sub, pt, constraint.tok, constraint.ErrorFormatString);
             used = true;
           }
-        } else if (sub is DPreType ptSub) {
-          if (ptSub.HasTraitSupertypes()) {
-            // TODO
+        } else if (ptSub != null) {
+          // We're looking at super :> D<a,b,c>
+          // If the head of D has no proper supertypes (i.e., D has no parent traits), then
+          //     Introduce alpha, beta
+          //     Constrain alpha :> a
+          //     Constrain b :> beta
+          // else do nothing for now
+          if (ptSub.Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0) {
+            // there are parent traits
+          } else if (ptSub.Decl is ClassDecl cl && !(ptSub.Decl is ArrowTypeDecl) && !cl.IsObjectTrait) {
+            // this is a non-object reference type, so it implicitly has "object" as a super-trait
           } else {
-            // "super" is constrained to be equal to "sub"
-            Console.WriteLine($"    DEBUG: converting {super} :> {sub} to equality constraint");
-            AddEqualityConstraint(super, sub, constraint.tok, constraint.ErrorFormatString);
+            var arguments = CreateProxiesForTypesAccordingToVariance(ptSub.Decl.TypeArgs, ptSub.Arguments);
+            var pt = new DPreType(ptSub.Decl, arguments);
+            AddEqualityConstraint(pt, super, constraint.tok, constraint.ErrorFormatString);
             used = true;
           }
         } else {
-          // both are proxies
+          // do nothing for now
         }
         if (used) {
           anythingChanged = true;
@@ -254,6 +286,82 @@ namespace Microsoft.Dafny {
         }
       }
       return anythingChanged;
+    }
+
+    /// <summary>
+    /// If "super" is an ancestor of "sub", then return a list "L" of arguments for "super" such that
+    /// "super<L>" is a supertype of "sub<subArguments>".
+    /// Otherwise, return "null".
+    /// </summary>
+    List<PreType> /*?*/ AdaptTypeArgumentsForParent(TopLevelDecl super, TopLevelDecl sub, List<PreType> subArguments) {
+      Contract.Requires(super != null);
+      Contract.Requires(sub != null);
+      Contract.Requires(subArguments != null);
+      Contract.Requires(sub.TypeArgs.Count == subArguments.Count);
+
+      if (super == sub) {
+        return subArguments;
+      } else if (sub is TopLevelDeclWithMembers md) {
+        var subst = PreType.PreTypeSubstMap(md.TypeArgs, subArguments);
+        foreach (var parentType in md.ParentTraits) {
+          var parentPreType = (DPreType)Type2PreType(parentType).Substitute(subst);
+          var arguments = AdaptTypeArgumentsForParent(super, parentPreType.Decl, parentPreType.Arguments);
+          if (arguments != null) {
+            return arguments;
+          }
+        }
+      }
+      return null;
+    }
+
+    List<PreType> CreateProxiesForTypesAccordingToVariance(List<TypeParameter> parameters, List<PreType> arguments) {
+      Contract.Requires(parameters != null);
+      Contract.Requires(arguments != null);
+      Contract.Requires(parameters.Count == arguments.Count);
+
+      if (parameters.All(tp => tp.Variance == TypeParameter.TPVariance.Non)) {
+        // special case this common situation
+        return arguments;
+      }
+      var newArgs = new List<PreType>();
+      for (var i = 0; i < parameters.Count; i++) {
+        var tp = parameters[i];
+        if (tp.Variance == TypeParameter.TPVariance.Non) {
+          newArgs.Add(arguments[i]);
+        } else {
+          var co = tp.Variance == TypeParameter.TPVariance.Co ? "co" : "contra";
+          var proxy = CreatePreTypeProxy($"type used in {co}variance constraint");
+          newArgs.Add(proxy);
+        }
+      }
+      return newArgs;
+    }
+
+    /// <summary>
+    /// For every co-variant parameters[i], constrain superArguments[i] :> subArguments[i].
+    /// For every contra-variant parameters[i], constrain subArguments[i] :> superArguments[i].
+    /// Do nothing for non-variant parameters[i].
+    /// </summary>
+    void ConstrainTypeArguments(List<TypeParameter> parameters, List<PreType> superArguments, List<PreType> subArguments, IToken tok) {
+      Contract.Requires(parameters != null);
+      Contract.Requires(superArguments != null);
+      Contract.Requires(subArguments != null);
+      Contract.Requires(parameters.Count == superArguments.Count && superArguments.Count == subArguments.Count);
+      Contract.Requires(tok != null);
+
+      for (var i = 0; i < parameters.Count; i++) {
+        var tp = parameters[i];
+        if (tp.Variance == TypeParameter.TPVariance.Non) {
+          continue;
+        }
+        var arg0 = superArguments[i];
+        var arg1 = subArguments[i];
+        if (tp.Variance == TypeParameter.TPVariance.Co) {
+          AddSubtypeConstraint(arg0, arg1, tok, "covariance would require {0} :> {1}");
+        } else {
+          AddSubtypeConstraint(arg1, arg0, tok, "contravariance would require {0} :> {1}");
+        }
+      }
     }
 
     // ---------------------------------------- Comparable constraints ----------------------------------------
