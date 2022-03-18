@@ -57,6 +57,7 @@ namespace Microsoft.Dafny {
         } else {
           if (e.Value == null) {
             e.PreType = CreatePreTypeProxy("literal 'null'");
+            AddDefaultAdvice(e.PreType, AdviceTarget.Object);
             AddConfirmation("IsNullableRefType", e.PreType, e.tok, "type of 'null' is a reference type, but it is used as {0}");
           } else if (e.Value is BigInteger) {
             e.PreType = CreatePreTypeProxy($"integer literal '{e.Value}'");

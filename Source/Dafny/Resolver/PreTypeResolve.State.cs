@@ -370,7 +370,7 @@ namespace Microsoft.Dafny {
       public readonly PreType PreType;
       public readonly AdviceTarget What;
 
-      public string WhatString => What.ToString().ToLower();
+      public string WhatString => What == AdviceTarget.Object ? "object?" : What.ToString().ToLower();
 
       public Advice(PreType preType, AdviceTarget advice) {
         PreType = preType;
@@ -379,7 +379,7 @@ namespace Microsoft.Dafny {
     }
 
     enum AdviceTarget {
-      Bool, Char, Int, Real, String
+      Bool, Char, Int, Real, String, Object
     }
 
     private List<Advice> defaultAdvice = new();
@@ -407,6 +407,7 @@ namespace Microsoft.Dafny {
             AdviceTarget.Int => Type2PreType(Type.Int),
             AdviceTarget.Real => Type2PreType(Type.Real),
             AdviceTarget.String => Type2PreType(StringDecl()),
+            AdviceTarget.Object => Type2PreType(resolver.builtIns.ObjectQ())
           };
           proxy.Set(target);
           anythingChanged = true;
