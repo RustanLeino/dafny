@@ -1,4 +1,5 @@
 #define TI_DEBUG_PRINT
+#define PRETYPE
 //-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
@@ -2638,8 +2639,10 @@ namespace Microsoft.Dafny {
 
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
 
+#if PRETYPE
       var preTypeResolver = new PreTypeResolver(this);
       preTypeResolver.ResolveDeclarations(declarations);
+#endif
       ResolvePass0(declarations);
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
@@ -2649,7 +2652,9 @@ namespace Microsoft.Dafny {
       FillInDefaultValueExpressions();
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+#if PRETYPE
         preTypeResolver.SanityCheckOldAndNewInference(declarations);
+#endif
         ResolvePass2(declarations);
       }
 
@@ -13022,7 +13027,9 @@ namespace Microsoft.Dafny {
           reporter.Error(MessageSource.Resolver, update, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment", update.Lhss.Count, update.Rhss.Count);
         } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
           // add the statements here in a sequence, but don't use that sequence later for translation (instead, should translate properly as multi-assignment)
+#if PRETYPE
           Contract.Assert(update.ResolvedStatements.Count == update.Lhss.Count); update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+#endif
           for (int i = 0; i < update.Lhss.Count; i++) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[i].Resolved, update.Rhss[i]);
             update.ResolvedStatements.Add(a);

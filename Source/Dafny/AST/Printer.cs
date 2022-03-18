@@ -1,3 +1,4 @@
+#define PRETYPE
 //-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
@@ -1109,7 +1110,9 @@ namespace Microsoft.Dafny {
 
     public void PrintPreType(PreType preType) {
       if (DafnyOptions.O.DafnyPrintResolvedFile != null) {
+#if PRETYPE
         wr.Write($"/*{preType}*/");
+#endif
       }
     }
 
