@@ -43,7 +43,7 @@ namespace Microsoft.Dafny {
     /// Returns "true" if anything changed (that is, if any of the constraints in the type-inference state
     /// caused a change some pre-type proxy).
     /// </summary>
-    void PartiallySolveTypeConstraints(string printableContext = null) {
+    void PartiallySolveTypeConstraints(string printableContext = null, bool makeDecisions = false) {
       if (printableContext != null) {
         PrintTypeInferenceState("(partial) " + printableContext);
       }
@@ -53,15 +53,26 @@ namespace Microsoft.Dafny {
         anythingChanged |= ApplySubtypeConstraints();
         anythingChanged |= ApplyComparableConstraints();
         anythingChanged |= ApplyGuardedConstraints();
+        if (makeDecisions) {
+          if (DecideHeadsFromBounds(true)) {
+            anythingChanged = true;
+          } else if (DecideHeadsFromBounds(false)) {
+            anythingChanged = true;
+          }
+        }
       } while (anythingChanged);
     }
 
     void SolveAllTypeConstraints(string printableContext) {
       PrintTypeInferenceState(printableContext);
       PartiallySolveTypeConstraints(null);
+
+      PartiallySolveTypeConstraints(null, true);
+
       if (ApplyDefaultAdvice()) {
-        PartiallySolveTypeConstraints(null);
+        PartiallySolveTypeConstraints(null, true);
       }
+
       PrintLegend();
       ConfirmTypeConstraints();
       ClearState();
@@ -103,7 +114,7 @@ namespace Microsoft.Dafny {
     }
 
     public static string TokToShortLocation(IToken tok) {
-      return $"{System.IO.Path.GetFileName(tok.filename)}({tok.line},{tok.col})";
+      return $"{System.IO.Path.GetFileName(tok.filename)}({tok.line},{tok.col - 1})";
     }
 
     void PrintList<T>(string rubric, List<T> list, Func<T, string> formatter) {
@@ -310,6 +321,12 @@ namespace Microsoft.Dafny {
             return arguments;
           }
         }
+        // If "md" is a reference type, its parents implicitly contain "object", but "object" might not be explicitly included in .ParentTraits.
+        // We handle it here.
+        if (DPreType.IsReferenceTypeDecl(md)) {
+          // "md" is a reference type, so "object" is a parent, and "object" has no type arguments
+          return new List<PreType>();
+        }
       }
       return null;
     }
@@ -361,6 +378,95 @@ namespace Microsoft.Dafny {
         } else {
           AddSubtypeConstraint(arg1, arg0, tok, "contravariance would require {0} :> {1}");
         }
+      }
+    }
+
+    bool DecideHeadsFromBounds(bool fromSubBounds) {
+      // For each proxy, compute the join/meet of its sub/super-bound heads
+      Dictionary<PreTypeProxy, TopLevelDecl> candidateHeads = new();
+      Dictionary<PreTypeProxy, SubtypeConstraint> constraintOrigins = new();
+      foreach (var constraint in subtypeConstraints) {
+        var proxy = (fromSubBounds ? constraint.Super : constraint.Sub).Normalize() as PreTypeProxy;
+        var bound = (fromSubBounds ? constraint.Sub : constraint.Super).Normalize() as DPreType;
+        if (proxy != null && bound != null) {
+          if (!candidateHeads.TryGetValue(proxy, out var previousBest)) {
+            candidateHeads.Add(proxy, bound.Decl);
+            constraintOrigins.Add(proxy, constraint);
+          } else {
+            var combined = fromSubBounds ? JoinHeads(previousBest, bound.Decl) : MeetHeads(previousBest, bound.Decl);
+            if (combined == null) {
+              // the two joins/meets were in conflict with each other; ignore the new one
+            } else {
+              candidateHeads[proxy] = combined;
+            }
+          }
+        }
+      }
+      var anythingChanged = false;
+      foreach (var (proxy, best) in candidateHeads) {
+        var pt = new DPreType(best, best.TypeArgs.ConvertAll(_ => CreatePreTypeProxy()));
+        var constraint = constraintOrigins[proxy];
+        Console.WriteLine($"    DEBUG: head decision {proxy} := {pt}");
+        AddEqualityConstraint(proxy, pt, constraint.tok, constraint.ErrorFormatString); // TODO: the message could be made more specific now (perhaps)
+        anythingChanged = true;
+      }
+      return anythingChanged;
+    }
+
+    TopLevelDecl/*?*/ JoinHeads(TopLevelDecl a, TopLevelDecl b) {
+      Contract.Requires(a != null);
+      Contract.Requires(b != null);
+      var aAncestors = new HashSet<TopLevelDecl>();
+      var bAncestors = new HashSet<TopLevelDecl>();
+      ComputeAncestors(a, aAncestors);
+      ComputeAncestors(b, bAncestors);
+      var ancestors = aAncestors.Intersect(bAncestors).ToList();
+      // Unless ancestors.Count == 1, there is no unique answer, and not necessary any way to determine the best
+      // answer. As a heuristic, pick the element with the highest unique Height number. If there is no such
+      // element, return null.
+      while (ancestors.Count != 0) {
+        var maxAmongAncestors = ancestors.Max(Height);
+        var highestAncestors = ancestors.Where(ancestor => Height(ancestor) == maxAmongAncestors).ToList();
+        if (highestAncestors.Count == 1) {
+          return highestAncestors.ElementAt(0);
+        }
+        ancestors.RemoveAll(ancestor => Height(ancestor) < maxAmongAncestors);
+      }
+      return null;
+    }
+
+    TopLevelDecl/*?*/ MeetHeads(TopLevelDecl a, TopLevelDecl b) {
+      Contract.Requires(a != null);
+      Contract.Requires(b != null);
+      var aAncestors = new HashSet<TopLevelDecl>();
+      if (aAncestors.Contains(b)) {
+        // that's good enough; let's pick a
+        return a;
+      }
+      var bAncestors = new HashSet<TopLevelDecl>();
+      if (bAncestors.Contains(a)) {
+        // that's good enough; let's pick b
+        return b;
+      }
+      // give up
+      return null;
+    }
+
+    void ComputeAncestors(TopLevelDecl d, ISet<TopLevelDecl> ancestors) {
+      if (!ancestors.Contains(d)) {
+        ancestors.Add(d);
+        if (d is TopLevelDeclWithMembers dm) {
+          dm.ParentTraitHeads.Iter(parent => ComputeAncestors(parent, ancestors));
+        }
+      }
+    }
+
+    int Height(TopLevelDecl d) {
+      if (d is TopLevelDeclWithMembers md) {
+        var maxAmongParents = md.ParentTraitHeads.Count == 0 ? 0 : md.ParentTraitHeads.Max(Height);
+        return maxAmongParents + 1;
+      } else {
+        return 0;
       }
     }
 
