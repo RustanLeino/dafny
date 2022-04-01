@@ -1,4 +1,5 @@
 #define TI_DEBUG_PRINT
+#define PRETYPE
 //-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
@@ -12710,7 +12711,22 @@ namespace Microsoft.Dafny {
   /// it gets "replaced" by the expression in "ResolvedExpression".
   /// </summary>
   public abstract class ConcreteSyntaxExpression : Expression {
+#if PRETYPE
+    private Expression ResolvedExpression_;
+    public Expression ResolvedExpression {  // filled in during resolution; after resolution, manipulation of "this" should proceed as with manipulating "this.ResolvedExpression"
+      get {
+        return ResolvedExpression_;
+      }
+      set {
+        if (ResolvedExpression_ != null) {
+          value.PreType = ResolvedExpression_.PreType;
+        }
+        ResolvedExpression_ = value;
+      }
+    }
+#else
     public Expression ResolvedExpression;  // filled in during resolution; after resolution, manipulation of "this" should proceed as with manipulating "this.ResolvedExpression"
+#endif
     public ConcreteSyntaxExpression(IToken tok)
       : base(tok) {
     }

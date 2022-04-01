@@ -16117,11 +16117,6 @@ namespace Microsoft.Dafny {
         // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .Type
         expr.Type = new InferredTypeProxy();
       } else {
-#if PRETYPE
-        if (expr.ResolvedExpression != null) {
-          r.PreType = expr.ResolvedExpression.PreType;
-        }
-#endif
         expr.ResolvedExpression = r;
         var rt = r.Type;
         var nt = rt.UseInternalSynonym();
@@ -16467,11 +16462,6 @@ namespace Microsoft.Dafny {
         // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .Type
         expr.Type = new InferredTypeProxy();
       } else {
-#if PRETYPE
-        if (expr.ResolvedExpression != null) {
-          r.PreType = expr.ResolvedExpression.PreType;
-        }
-#endif
         expr.ResolvedExpression = r;
         expr.Type = r.Type;
       }
@@ -17001,7 +16991,9 @@ namespace Microsoft.Dafny {
     void FillInDefaultValueExpression(DefaultValueExpression expr, Dictionary<DefaultValueExpression, WorkProgress> visited) {
       Contract.Requires(expr != null);
       Contract.Requires(visited != null);
+#if !PRETYPE
       Contract.Ensures(Contract.ValueAtReturn(out expr.ResolvedExpression) != null);
+#endif
 
       if (visited.TryGetValue(expr, out var p)) {
         if (p == WorkProgress.Done) {
