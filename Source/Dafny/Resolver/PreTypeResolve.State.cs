@@ -378,12 +378,11 @@ namespace Microsoft.Dafny {
 
       for (var i = 0; i < parameters.Count; i++) {
         var tp = parameters[i];
-        if (tp.Variance == TypeParameter.TPVariance.Non) {
-          continue;
-        }
         var arg0 = superArguments[i];
         var arg1 = subArguments[i];
-        if (tp.Variance == TypeParameter.TPVariance.Co) {
+        if (tp.Variance == TypeParameter.TPVariance.Non) {
+          AddEqualityConstraint(arg0, arg1, tok, "non-variance would require {0} == {1}");
+        } else if (tp.Variance == TypeParameter.TPVariance.Co) {
           AddSubtypeConstraint(arg0, arg1, tok, "covariance would require {0} :> {1}");
         } else {
           AddSubtypeConstraint(arg1, arg0, tok, "contravariance would require {0} :> {1}");
