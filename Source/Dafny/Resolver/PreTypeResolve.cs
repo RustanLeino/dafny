@@ -91,17 +91,17 @@ namespace Microsoft.Dafny {
 
       type = type.NormalizeExpand();
       if (type is BoolType) {
-        return new DPreType(BuiltInTypeDecl("bool"));
+        return new DPreType(BuiltInTypeDecl("bool"), this);
       } else if (type is CharType) {
-        return new DPreType(BuiltInTypeDecl("char"));
+        return new DPreType(BuiltInTypeDecl("char"), this);
       } else if (type is IntType) {
-        return new DPreType(BuiltInTypeDecl("int"));
+        return new DPreType(BuiltInTypeDecl("int"), this);
       } else if (type is RealType) {
-        return new DPreType(BuiltInTypeDecl("real"));
+        return new DPreType(BuiltInTypeDecl("real"), this);
       } else if (type is BigOrdinalType) {
-        return new DPreType(BuiltInTypeDecl("ORDINAL"));
+        return new DPreType(BuiltInTypeDecl("ORDINAL"), this);
       } else if (type is BitvectorType bitvectorType) {
-        return new DPreType(BuiltInTypeDecl("bv" + bitvectorType.Width));
+        return new DPreType(BuiltInTypeDecl("bv" + bitvectorType.Width), this);
       } else if (type is CollectionType) {
         var name =
           type is SetType st ? (st.Finite ? "set" : "iset") :
@@ -766,17 +766,15 @@ namespace Microsoft.Dafny {
       }
 #endif
       if (fe.FieldName != null) {
-        NonProxyType tentativeReceiverType;
-        var member = FindMember(fe.E.tok, eventualRefType, fe.FieldName, out tentativeReceiverType);
-        var ctype = (UserDefinedType)tentativeReceiverType;  // correctness of cast follows from the DenotesClass test above
+        var (member, tentativeReceiverType) = FindMember(fe.E.tok, Type2PreType(eventualRefType), fe.FieldName);
+        Contract.Assert((member == null) == (tentativeReceiverType == null)); // follows from contract of FindMember
         if (member == null) {
-          // error has already been reported by ResolveMember
+          // error has already been reported by FindMember
         } else if (!(member is Field)) {
-          ReportError(fe.E, "member {0} in type {1} does not refer to a field", fe.FieldName, ctype.Name);
+          ReportError(fe.E, "member {0} in type {1} does not refer to a field", fe.FieldName, tentativeReceiverType.Decl.Name);
         } else if (member is ConstantField) {
           ReportError(fe.E, "expression is not allowed to refer to constant field {0}", fe.FieldName);
         } else {
-          Contract.Assert(ctype != null && ctype.ResolvedClass != null);  // follows from postcondition of ResolveMember
           fe.Field = (Field)member;
         }
       }
@@ -790,6 +788,46 @@ namespace Microsoft.Dafny {
       c.Visit(expr);
     }
     
+    // ---------------------------------------- Utilities ----------------------------------------
+
+    public Dictionary<TypeParameter, PreType> BuildPreTypeArgumentSubstitute(Dictionary<TypeParameter, PreType> typeArgumentSubstitutions, DPreType/*?*/ receiverTypeBound = null) {
+      Contract.Requires(typeArgumentSubstitutions != null);
+
+      var subst = new Dictionary<TypeParameter, PreType>();
+      foreach (var entry in typeArgumentSubstitutions) {
+        subst.Add(entry.Key, entry.Value);
+      }
+
+#if SOON
+      if (SelfTypeSubstitution != null) {
+        foreach (var entry in SelfTypeSubstitution) {
+          subst.Add(entry.Key, entry.Value);
+        }
+      }
+#endif
+
+#if SOON
+      if (receiverTypeBound != null) {
+        TopLevelDeclWithMembers cl;
+        var udt = receiverTypeBound?.AsNonNullRefType;
+        if (udt != null) {
+          cl = (TopLevelDeclWithMembers)((NonNullTypeDecl)udt.ResolvedClass).ViewAsClass;
+        } else {
+          udt = receiverTypeBound.NormalizeExpand() as UserDefinedType;
+          cl = udt?.ResolvedClass as TopLevelDeclWithMembers;
+        }
+        if (cl != null) {
+          foreach (var entry in cl.ParentFormalTypeParametersToActuals) {
+            var v = entry.Value.Substitute(subst);
+            subst.Add(entry.Key, v);
+          }
+        }
+      }
+#endif
+
+      return subst;
+    }
+
     // ---------------------------------------- Migration sanity checks ----------------------------------------
 
     public void SanityCheckOldAndNewInference(List<TopLevelDecl> declarations) {

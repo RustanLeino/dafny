@@ -13028,7 +13028,8 @@ namespace Microsoft.Dafny {
         } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
           // add the statements here in a sequence, but don't use that sequence later for translation (instead, should translate properly as multi-assignment)
 #if PRETYPE
-          Contract.Assert(update.ResolvedStatements.Count == update.Lhss.Count); update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+          Contract.Assert(update.ResolvedStatements.Count == update.Lhss.Count);
+          update.ResolvedStatements.Clear(); // clear what pre-type resolution did
 #endif
           for (int i = 0; i < update.Lhss.Count; i++) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[i].Resolved, update.Rhss[i]);
@@ -16026,9 +16027,6 @@ namespace Microsoft.Dafny {
           }
         }
         r = new IdentifierExpr(expr.tok, v);
-        if (expr.ResolvedExpression is IdentifierExpr preTypeInference) {
-          r.PreType = preTypeInference.PreType;
-        }
       } else if (currentClass is TopLevelDeclWithMembers cl && classMembers.TryGetValue(cl, out members) && members.TryGetValue(name, out member)) {
         // ----- 1. member of the enclosing class
         Expression receiver;
@@ -16119,6 +16117,11 @@ namespace Microsoft.Dafny {
         // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .Type
         expr.Type = new InferredTypeProxy();
       } else {
+#if PRETYPE
+        if (expr.ResolvedExpression != null) {
+          r.PreType = expr.ResolvedExpression.PreType;
+        }
+#endif
         expr.ResolvedExpression = r;
         var rt = r.Type;
         var nt = rt.UseInternalSynonym();
@@ -16464,6 +16467,11 @@ namespace Microsoft.Dafny {
         // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .Type
         expr.Type = new InferredTypeProxy();
       } else {
+#if PRETYPE
+        if (expr.ResolvedExpression != null) {
+          r.PreType = expr.ResolvedExpression.PreType;
+        }
+#endif
         expr.ResolvedExpression = r;
         expr.Type = r.Type;
       }

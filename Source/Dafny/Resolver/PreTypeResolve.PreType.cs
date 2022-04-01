@@ -87,6 +87,10 @@ namespace Microsoft.Dafny {
     public readonly int UniqueId;
     public PreType PT; // filled in by resolution
 
+    /// <summary>
+    /// There should be just one call to this constructor, namely from PreTypeResolver.CreatePreTypeProxy.
+    /// Other callers that need a new pre-type proxy should call PreTypeResolver.CreatePreTypeProxy.
+    /// </summary>
     public PreTypeProxy(int uniqueId) {
       UniqueId = uniqueId;
     }
@@ -120,8 +124,10 @@ namespace Microsoft.Dafny {
       Arguments = arguments;
     }
 
-    public DPreType(TopLevelDecl decl)
-      : this(decl, new()) {
+    public DPreType(TopLevelDecl decl, PreTypeResolver preTypeResolver)
+      : this(decl, decl.TypeArgs.ConvertAll(_ => preTypeResolver.CreatePreTypeProxy())) {
+      Contract.Requires(decl != null);
+      Contract.Requires(preTypeResolver != null);
     }
 
     public override string ToString() {
