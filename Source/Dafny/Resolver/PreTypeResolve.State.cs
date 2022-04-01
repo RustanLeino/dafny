@@ -79,7 +79,7 @@ namespace Microsoft.Dafny {
     }
 
     void ClearState() {
-      subtypeConstraints.Clear();
+      unnormalizedSubtypeConstraints.Clear();
       comparableConstraints.Clear();
       guardedConstraints.Clear();
       defaultAdvice.Clear();
@@ -89,7 +89,7 @@ namespace Microsoft.Dafny {
 
     public void PrintTypeInferenceState(string/*?*/ header = null) {
       Console.WriteLine("*** Type inference state ***{0}", header == null ? "" : $" {header} ");
-      PrintList("Subtype constraints", subtypeConstraints, stc => {
+      PrintList("Subtype constraints", unnormalizedSubtypeConstraints, stc => {
         return $"{stc.Super} :> {stc.Sub}";
       });
       PrintList("Comparable constraints", comparableConstraints, cc => {
@@ -202,19 +202,29 @@ namespace Microsoft.Dafny {
         Contract.Requires(sub != null);
         Contract.Requires(tok != null);
         Contract.Requires(errorFormatString != null);
-        Super = super;
-        Sub = sub;
+        Super = super.Normalize();
+        Sub = sub.Normalize();
+      }
+
+      public SubtypeConstraint Normalize() {
+        var super = Super.Normalize();
+        var sub = Sub.Normalize();
+        if (object.ReferenceEquals(super, Super) && object.ReferenceEquals(sub, Sub)) {
+          return this;
+        } else {
+          return new SubtypeConstraint(super, sub, Token.NoToken, ErrorFormatString);
+        }
       }
     }
 
-    private List<SubtypeConstraint> subtypeConstraints = new();
+    private List<SubtypeConstraint> unnormalizedSubtypeConstraints = new();
 
     void AddSubtypeConstraint(PreType super, PreType sub, IToken tok, string errorFormatString) {
       Contract.Requires(super != null);
       Contract.Requires(sub != null);
       Contract.Requires(tok != null);
       Contract.Requires(errorFormatString != null);
-      subtypeConstraints.Add(new SubtypeConstraint(super, sub, tok, errorFormatString));
+      unnormalizedSubtypeConstraints.Add(new SubtypeConstraint(super, sub, tok, errorFormatString));
     }
 
     void AddAssignableConstraint(PreType lhs, PreType rhs, IToken tok, string errMsgFormat) {
@@ -226,12 +236,12 @@ namespace Microsoft.Dafny {
     }
 
     bool ApplySubtypeConstraints() {
-      if (subtypeConstraints.Count == 0) {
+      if (unnormalizedSubtypeConstraints.Count == 0) {
         // common special case
         return false;
       }
-      var constraints = subtypeConstraints;
-      subtypeConstraints = new();
+      var constraints = unnormalizedSubtypeConstraints;
+      unnormalizedSubtypeConstraints = new();
       var anythingChanged = false;
       foreach (var constraint in constraints) {
         var used = false;
@@ -293,7 +303,7 @@ namespace Microsoft.Dafny {
         if (used) {
           anythingChanged = true;
         } else {
-          subtypeConstraints.Add(constraint);
+          unnormalizedSubtypeConstraints.Add(constraint.Normalize());
         }
       }
       return anythingChanged;
@@ -385,7 +395,7 @@ namespace Microsoft.Dafny {
       // For each proxy, compute the join/meet of its sub/super-bound heads
       Dictionary<PreTypeProxy, TopLevelDecl> candidateHeads = new();
       Dictionary<PreTypeProxy, SubtypeConstraint> constraintOrigins = new();
-      foreach (var constraint in subtypeConstraints) {
+      foreach (var constraint in unnormalizedSubtypeConstraints) {
         var proxy = (fromSubBounds ? constraint.Super : constraint.Sub).Normalize() as PreTypeProxy;
         var bound = (fromSubBounds ? constraint.Sub : constraint.Super).Normalize() as DPreType;
         if (proxy != null && bound != null) {
@@ -467,6 +477,44 @@ namespace Microsoft.Dafny {
         return maxAmongParents + 1;
       } else {
         return 0;
+      }
+    }
+
+    IEnumerable<DPreType> AllSubBounds(PreTypeProxy proxy, ISet<PreTypeProxy> visited) {
+      Contract.Requires(proxy.PT == null);
+      if (!visited.Contains(proxy)) {
+        visited.Add(proxy);
+        foreach (var constraint in unnormalizedSubtypeConstraints) {
+          if (constraint.Super.Normalize() == proxy) {
+            var sub = constraint.Sub.Normalize();
+            if (sub is PreTypeProxy subProxy) {
+              foreach (var pt in AllSubBounds(subProxy, visited)) {
+                yield return pt;
+              }
+            } else {
+              yield return (DPreType)sub;
+            }
+          }
+        }
+      }
+    }
+
+    IEnumerable<DPreType> AllSuperBounds(PreTypeProxy proxy, ISet<PreTypeProxy> visited) {
+      Contract.Requires(proxy.PT == null);
+      if (!visited.Contains(proxy)) {
+        visited.Add(proxy);
+        foreach (var constraint in unnormalizedSubtypeConstraints) {
+          if (constraint.Sub.Normalize() == proxy) {
+            var super = constraint.Super.Normalize();
+            if (super is PreTypeProxy superProxy) {
+              foreach (var pt in AllSuperBounds(superProxy, visited)) {
+                yield return pt;
+              }
+            } else {
+              yield return (DPreType)super;
+            }
+          }
+        }
       }
     }
 
