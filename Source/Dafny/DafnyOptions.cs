@@ -61,6 +61,7 @@ namespace Microsoft.Dafny {
     public int Induction = 4;
     public int InductionHeuristic = 6;
     public bool TypeInferenceDebug = false;
+    public bool NewTypeInferenceDebug = false;
     public bool MatchCompilerDebug = false;
     public string DafnyPrelude = null;
     public string DafnyPrintFile = null;
@@ -315,6 +316,10 @@ namespace Microsoft.Dafny {
 
         case "titrace":
           TypeInferenceDebug = true;
+          return true;
+
+        case "ntitrace":
+          NewTypeInferenceDebug = true;
           return true;
 
         case "induction":
@@ -881,6 +886,7 @@ Exit code: 0 -- success; 1 -- invalid command-line; 2 -- parse or type errors;
     (use - as <file> to print to console)
 /pmtrace      print pattern-match compiler debug info
 /titrace      print type-inference debug info
+/ntitrace     print type-inference debug info for the new type inference
 /view:<view1, view2>
     print the filtered views of a module after it is resolved (/rprint).
     If print before the module is resolved (/dprint), then everything in the module

@@ -7,13 +7,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Numerics;
 using System.Diagnostics.Contracts;
-using System.Runtime.Intrinsics.X86;
 using Microsoft.Boogie;
-using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
@@ -88,6 +85,9 @@ namespace Microsoft.Dafny {
     }
 
     public void PrintTypeInferenceState(string/*?*/ header = null) {
+      if (!DafnyOptions.O.NewTypeInferenceDebug) {
+        return;
+      }
       Console.WriteLine("*** Type inference state ***{0}", header == null ? "" : $" {header} ");
       PrintList("Subtype constraints", unnormalizedSubtypeConstraints, stc => {
         return $"{stc.Super} :> {stc.Sub}";
@@ -118,6 +118,9 @@ namespace Microsoft.Dafny {
     }
 
     void PrintList<T>(string rubric, List<T> list, Func<T, string> formatter) {
+      if (!DafnyOptions.O.NewTypeInferenceDebug) {
+        return;
+      }
       Console.WriteLine($"    {rubric}:");
       foreach (var t in list) {
         var info = $"        {formatter(t)}";
@@ -131,6 +134,12 @@ namespace Microsoft.Dafny {
     string Pad(string s, int minWidth) {
       Contract.Requires(s != null);
       return s + new string(' ', Math.Max(minWidth - s.Length, 0));
+    }
+
+    void DebugPrint(string format, params object[] args) {
+      if (DafnyOptions.O.NewTypeInferenceDebug) {
+        Console.WriteLine(format, args);
+      }
     }
 
     // ---------------------------------------- Equality constraints ----------------------------------------
@@ -415,7 +424,7 @@ namespace Microsoft.Dafny {
       foreach (var (proxy, best) in candidateHeads) {
         var pt = new DPreType(best, best.TypeArgs.ConvertAll(_ => CreatePreTypeProxy()));
         var constraint = constraintOrigins[proxy];
-        Console.WriteLine($"    DEBUG: head decision {proxy} := {pt}");
+        DebugPrint($"    DEBUG: head decision {proxy} := {pt}");
         AddEqualityConstraint(proxy, pt, constraint.tok, constraint.ErrorFormatString); // TODO: the message could be made more specific now (perhaps)
         anythingChanged = true;
       }
@@ -601,7 +610,7 @@ namespace Microsoft.Dafny {
             var a1 = constraint.Arguments[1];
             var coll = a1.UrAncestor(this).AsCollectionType();
             if (coll != null) {
-              Console.WriteLine($"    DEBUG: guard applies: Innable {a0} {a1}");
+              DebugPrint($"    DEBUG: guard applies: Innable {a0} {a1}");
               AddSubtypeConstraint(coll.Arguments[0], a0, constraint.tok,
                 "expecting element type to be assignable to {0} (got {1})");
               used = true;
@@ -655,7 +664,7 @@ namespace Microsoft.Dafny {
       foreach (var advice in defaultAdvice) {
         var preType = advice.PreType.Normalize();
         if (preType is PreTypeProxy proxy) {
-          Console.WriteLine($"    DEBUG: acting on advice, setting {proxy} := {advice.WhatString}");
+          DebugPrint($"    DEBUG: acting on advice, setting {proxy} := {advice.WhatString}");
 
           Type StringDecl() {
             var s = resolver.moduleInfo.TopLevels["string"];
