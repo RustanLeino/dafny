@@ -376,10 +376,8 @@ namespace Microsoft.Dafny {
           AddAssignableConstraint(lhsPreType, rr.Expr.PreType, stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
         } else if (s.Rhs is TypeRhs) {
           var rr = (TypeRhs)s.Rhs;
-#if SOON
           Type t = ResolveTypeRhs(rr, stmt, codeContext);
-          AddAssignableConstraint(stmt.Tok, lhsType, t, "type {1} is not assignable to LHS (of type {0})");
-#endif
+          AddAssignableConstraint(lhsPreType, Type2PreType(t), stmt.Tok, "type {1} is not assignable to LHS (of type {0})");
         } else if (s.Rhs is HavocRhs) {
           // nothing else to do
         } else {
