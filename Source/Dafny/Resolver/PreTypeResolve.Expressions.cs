@@ -428,17 +428,14 @@ namespace Microsoft.Dafny {
           case BinaryExpr.Opcode.Exp:
           case BinaryExpr.Opcode.And:
           case BinaryExpr.Opcode.Or: {
-            SetPreTypeBoolFamily(expr, opString);
-            AddEqualityConstraint(expr.PreType, e.E0.PreType,
-              expr.tok, "type of left argument to " + opString + " ({1}) must agree with the result type ({0})");
-            AddEqualityConstraint(expr.PreType, e.E1.PreType,
-              expr.tok, "type of right argument to " + opString + " ({1}) must agree with the result type ({0})");
+            SetPreTypeBoolFamilyOperator(expr, opString);
+            ConstrainOperandTypes(e, opString);
             break;
           }
 
           case BinaryExpr.Opcode.Eq:
           case BinaryExpr.Opcode.Neq:
-            SetPreTypeBoolFamily(expr, opString);
+            SetPreTypeBoolFamilyOperator(expr, opString);
             AddComparableConstraint(e.E0.PreType, e.E1.PreType, expr.tok, "arguments must have comparable types (got {0} and {1})");
             break;
 
@@ -484,24 +481,17 @@ namespace Microsoft.Dafny {
               expr.Type = Type.Bool;
             }
             break;
+#endif
 
-          case BinaryExpr.Opcode.LeftShift:
-          case BinaryExpr.Opcode.RightShift: {
-              expr.Type = new InferredTypeProxy();
-              AddXConstraint(e.tok, "IsBitvector", expr.Type, "type of " + BinaryExpr.OpcodeString(e.Op) + " must be a bitvector type (instead got {0})");
-              ConstrainSubtypeRelation(expr.Type, e.E0.Type, expr.tok, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})", e.E0.Type, expr.Type);
-              AddXConstraint(expr.tok, "IntLikeOrBitvector", e.E1.Type, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must be an integer-numeric or bitvector type");
-            }
+          case BinaryExpr.Opcode.Add:
+            expr.PreType = CreatePreTypeProxy("result of +");
+            AddGuardedConstraint("Plussable", expr.tok,
+              "type of + must be of a numeric type, a bitvector type, ORDINAL, char, a sequence type, or a set-like or map-like type (instead got {0})",
+              expr.PreType);
+            ConstrainOperandTypes(e, opString);
             break;
 
-          case BinaryExpr.Opcode.Add: {
-              expr.Type = new InferredTypeProxy();
-              AddXConstraint(e.tok, "Plussable", expr.Type, "type of + must be of a numeric type, a bitvector type, ORDINAL, char, a sequence type, or a set-like or map-like type (instead got {0})");
-              ConstrainSubtypeRelation(expr.Type, e.E0.Type, expr.tok, "type of left argument to + ({0}) must agree with the result type ({1})", e.E0.Type, expr.Type);
-              ConstrainSubtypeRelation(expr.Type, e.E1.Type, expr.tok, "type of right argument to + ({0}) must agree with the result type ({1})", e.E1.Type, expr.Type);
-            }
-            break;
-
+#if SOON
           case BinaryExpr.Opcode.Sub: {
               expr.Type = new InferredTypeProxy();
               AddXConstraint(e.tok, "Minusable", expr.Type, "type of - must be of a numeric type, bitvector type, ORDINAL, char, or a set-like or map-like type (instead got {0})");
@@ -523,62 +513,52 @@ namespace Microsoft.Dafny {
               }
             }
             break;
-
-          case BinaryExpr.Opcode.Mul: {
-              expr.Type = new InferredTypeProxy();
-              AddXConstraint(e.tok, "Mullable", expr.Type, "type of * must be of a numeric type, bitvector type, or a set-like type (instead got {0})");
-              ConstrainSubtypeRelation(expr.Type, e.E0.Type, expr.tok, "type of left argument to * ({0}) must agree with the result type ({1})", e.E0.Type, expr.Type);
-              ConstrainSubtypeRelation(expr.Type, e.E1.Type, expr.tok, "type of right argument to * ({0}) must agree with the result type ({1})", e.E1.Type, expr.Type);
-            }
-            break;
 #endif
+
+          case BinaryExpr.Opcode.Mul:
+            expr.PreType = CreatePreTypeProxy("result of *");
+            AddGuardedConstraint("Mullable", expr.tok, "type of * must be of a numeric type, bitvector type, or a set-like type (instead got {0})");
+            ConstrainOperandTypes(e, opString);
+            break;
 
           case BinaryExpr.Opcode.In:
           case BinaryExpr.Opcode.NotIn:
-            expr.PreType = CreatePreTypeProxy($"result of '{opString}' operation");
-            AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
-            AddConfirmation("InBoolFamily", expr.PreType, expr.tok, "type of " + opString + " must be a boolean (got {0})");
+            SetPreTypeBoolFamilyOperator(expr, "'" + opString + "'");
             AddGuardedConstraint("Innable", expr.tok,
               "second argument to '" + opString + "' must be a set, multiset, or sequence with elements of type {0}, or a map with domain {0} (instead got {1})",
               e.E0.PreType, e.E1.PreType);
             break;
 
-#if SOON
           case BinaryExpr.Opcode.Div:
-            expr.Type = new InferredTypeProxy();
-            AddXConstraint(expr.tok, "NumericOrBitvector", expr.Type, "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be numeric or bitvector types (got {0})");
-            ConstrainSubtypeRelation(expr.Type, e.E0.Type,
-              expr, "type of left argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})",
-              e.E0.Type, expr.Type);
-            ConstrainSubtypeRelation(expr.Type, e.E1.Type,
-              expr, "type of right argument to " + BinaryExpr.OpcodeString(e.Op) + " ({0}) must agree with the result type ({1})",
-              e.E1.Type, expr.Type);
+            expr.PreType = CreatePreTypeProxy("result of / operation");
+            AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
+            AddConfirmation("NumericOrBitvector", expr.PreType, expr.tok, "arguments to " + opString + " must be numeric or bitvector types (got {0})");
+            ConstrainOperandTypes(e, opString);
             break;
 
-#endif
           case BinaryExpr.Opcode.Mod:
             expr.PreType = CreatePreTypeProxy("result of % operation");
             AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
             AddConfirmation("IntLikeOrBitvector", expr.PreType, expr.tok, "type of " + opString + " must be integer-numeric or bitvector types (got {0})");
-            AddEqualityConstraint(expr.PreType, e.E0.PreType,
-              expr.tok, "type of left argument to " + opString + " ({1}) must agree with the result type ({0})");
-            AddEqualityConstraint(expr.PreType, e.E1.PreType,
-              expr.tok, "type of right argument to " + opString + " ({1}) must agree with the result type ({0})");
+            ConstrainOperandTypes(e, opString);
             break;
 
-#if SOON
           case BinaryExpr.Opcode.BitwiseAnd:
           case BinaryExpr.Opcode.BitwiseOr:
           case BinaryExpr.Opcode.BitwiseXor:
-            expr.Type = NewIntegerBasedProxy(expr.tok);
-            var errFormat = "first argument to " + BinaryExpr.OpcodeString(e.Op) + " must be of a bitvector type (instead got {0})";
-            ConstrainSubtypeRelation(expr.Type, e.E0.Type, expr, errFormat, e.E0.Type);
-            AddXConstraint(expr.tok, "IsBitvector", e.E0.Type, errFormat);
-            errFormat = "second argument to " + BinaryExpr.OpcodeString(e.Op) + " must be of a bitvector type (instead got {0})";
-            ConstrainSubtypeRelation(expr.Type, e.E1.Type, expr, errFormat, e.E1.Type);
-            AddXConstraint(expr.tok, "IsBitvector", e.E1.Type, errFormat);
+            expr.PreType = CreatePreTypeProxy("result of " + opString + " operation");
+            AddConfirmation("IsBitvector", expr.PreType, expr.tok, "type of " + opString + " must be of a bitvector type (instead got {0})");
+            ConstrainOperandTypes(e, opString);
             break;
-#endif
+
+          case BinaryExpr.Opcode.LeftShift:
+          case BinaryExpr.Opcode.RightShift: {
+            expr.PreType = CreatePreTypeProxy("result of " + opString + " operation");
+            AddConfirmation("IsBitvector", expr.PreType, expr.tok, "type of " + opString + " must be of a bitvector type (instead got {0})");
+            ConstrainOperandTypes(e, opString, true, false);
+            AddConfirmation("IntLikeOrBitvector", e.E1.PreType, expr.tok, "type of right argument to " + opString + " ({0}) must be an integer-numeric or bitvector type");
+          }
+            break;
 
           default:
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected operator
@@ -801,10 +781,30 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private void SetPreTypeBoolFamily(Expression expr, string opString) {
-      expr.PreType = CreatePreTypeProxy($"result of {opString} operation");
+    private void SetPreTypeBoolFamilyOperator(Expression expr, string opString) {
+      var proxyDescription = $"result of {opString} operation";
+      SetPreTypeBoolFamily(expr, proxyDescription, "type of " + opString + " must be a boolean (got {0})");
+    }
+
+    private void SetPreTypeBoolFamily(Expression expr, string proxyDescription, string errorFormat) {
+      expr.PreType = CreatePreTypeProxy(proxyDescription);
       AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
-      AddConfirmation("InBoolFamily", expr.PreType, expr.tok, "type of " + opString + " must be a boolean (got {0})");
+      AddConfirmation("InBoolFamily", expr.PreType, expr.tok, errorFormat);
+    }
+
+    private void ConstrainOperandTypes(BinaryExpr expr, string opString) {
+      ConstrainOperandTypes(expr, opString, true, true);
+    }
+
+    private void ConstrainOperandTypes(BinaryExpr expr, string opString, bool applyToLeft, bool applyToRight) {
+      if (applyToLeft) {
+        AddEqualityConstraint(expr.PreType, expr.E0.PreType, expr.tok,
+          $"type of left argument to {opString} ({{1}}) must agree with the result type ({{0}})");
+      }
+      if (applyToRight) {
+        AddEqualityConstraint(expr.PreType, expr.E1.PreType, expr.tok,
+          $"type of right argument to {opString} ({{1}}) must agree with the result type ({{0}})");
+      }
     }
 
     /// <summary>

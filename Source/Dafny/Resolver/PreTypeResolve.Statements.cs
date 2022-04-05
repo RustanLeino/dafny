@@ -421,11 +421,13 @@ namespace Microsoft.Dafny {
           ResolveStatement(s.Els, codeContext);
           dominatingStatementLabels.PopMarker();
         }
+#endif
 
       } else if (stmt is AlternativeStmt) {
         var s = (AlternativeStmt)stmt;
         ResolveAlternatives(s.Alternatives, null, codeContext);
 
+#if SOON
       } else if (stmt is OneBodyLoopStmt) {
         var s = (OneBodyLoopStmt)stmt;
         var fvs = new HashSet<IVariable>();

@@ -646,6 +646,12 @@ namespace Microsoft.Dafny {
       foreach (var constraint in constraints) {
         var used = false;
         switch (constraint.Kind) {
+          case "Plussable":
+            // TODO
+            break;
+          case "Mullable":
+            // TODO
+            break;
           case "Innable": {
             // For "Innable x s", if s is known, then:
             // if s == c<a> or s == c<a, b> where c is a collection type, then a :> x, else error.
