@@ -274,6 +274,7 @@ namespace Microsoft.Dafny {
             used = true;
           } else {
             ReportError(constraint.tok, constraint.ErrorMessage());
+            used = true;
           }
         } else if (ptSuper != null) {
           // We're looking at D<a,b,c> :> sub
@@ -374,9 +375,9 @@ namespace Microsoft.Dafny {
     }
 
     /// <summary>
+    /// For every non-variant parameters[i], constrain superArguments[i] == subArguments[i].
     /// For every co-variant parameters[i], constrain superArguments[i] :> subArguments[i].
     /// For every contra-variant parameters[i], constrain subArguments[i] :> superArguments[i].
-    /// Do nothing for non-variant parameters[i].
     /// </summary>
     void ConstrainTypeArguments(List<TypeParameter> parameters, List<PreType> superArguments, List<PreType> subArguments, IToken tok) {
       Contract.Requires(parameters != null);
@@ -558,8 +559,51 @@ namespace Microsoft.Dafny {
     }
 
     bool ApplyComparableConstraints() {
-      // TODO
-      return false;
+      // The meaning of a comparable constraint
+      //     A ~~ B
+      // is the disjunction
+      //     A :> B    or    B :> A
+      // To decide between these two possibilities, enough information must be available
+      // about A and/or B.
+      if (comparableConstraints.Count == 0) {
+        // common special case
+        return false;
+      }
+      var constraints = comparableConstraints;
+      comparableConstraints = new();
+      var anythingChanged = false;
+      foreach (var constraint in constraints) {
+        var used = false;
+        var a = constraint.A.Normalize();
+        var b = constraint.B.Normalize();
+        var ptA = a as DPreType;
+        var ptB = b as DPreType;
+        if (ptA != null && ptB != null &&
+            AdaptTypeArgumentsForParent(ptB.Decl, ptA.Decl, ptA.Arguments) == null &&
+            AdaptTypeArgumentsForParent(ptA.Decl, ptB.Decl, ptB.Arguments) == null) {
+          // neither A :> B nor B :> A is possible
+          ReportError(constraint.tok, constraint.ErrorMessage());
+          used = true;
+        } else if ((ptA != null && ptA.IsLeafType()) || (ptB != null && ptB.IsRootType())) {
+          // use B :> A
+          DebugPrint($"    DEBUG: turning ~~ into {b} :> {a}");
+          AddSubtypeConstraint(b, a, constraint.tok, constraint.ErrorFormatString);
+          used = true;
+        } else if ((ptA != null && ptA.IsRootType()) || (ptB != null && ptB.IsLeafType())) {
+          // use A :> B
+          DebugPrint($"    DEBUG: turning ~~ into {a} :> {b}");
+          AddSubtypeConstraint(a, b, constraint.tok, constraint.ErrorFormatString);
+          used = true;
+        } else {
+          // not enough information to determine
+        }
+        if (used) {
+          anythingChanged = true;
+        } else {
+          comparableConstraints.Add(constraint);
+        }
+      }
+      return anythingChanged;
     }
 
     // ---------------------------------------- Guarded constraints ----------------------------------------

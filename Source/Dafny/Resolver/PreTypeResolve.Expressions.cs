@@ -428,9 +428,7 @@ namespace Microsoft.Dafny {
           case BinaryExpr.Opcode.Exp:
           case BinaryExpr.Opcode.And:
           case BinaryExpr.Opcode.Or: {
-            expr.PreType = CreatePreTypeProxy($"result of {opString} operation");
-            AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
-            AddConfirmation("InBoolFamily", expr.PreType, expr.tok, "type of " + opString + " must be a boolean (got {0})");
+            SetPreTypeBoolFamily(expr, opString);
             AddEqualityConstraint(expr.PreType, e.E0.PreType,
               expr.tok, "type of left argument to " + opString + " ({1}) must agree with the result type ({0})");
             AddEqualityConstraint(expr.PreType, e.E1.PreType,
@@ -438,13 +436,13 @@ namespace Microsoft.Dafny {
             break;
           }
 
-#if SOON
           case BinaryExpr.Opcode.Eq:
           case BinaryExpr.Opcode.Neq:
-            AddXConstraint(expr.tok, "Equatable", e.E0.Type, e.E1.Type, "arguments must have comparable types (got {0} and {1})");
-            expr.Type = Type.Bool;
+            SetPreTypeBoolFamily(expr, opString);
+            AddComparableConstraint(e.E0.PreType, e.E1.PreType, expr.tok, "arguments must have comparable types (got {0} and {1})");
             break;
 
+#if SOON
           case BinaryExpr.Opcode.Disjoint:
             Type disjointArgumentsType = new InferredTypeProxy();
             ConstrainSubtypeRelation(disjointArgumentsType, e.E0.Type, expr, "arguments to {2} must have a common supertype (got {0} and {1})", e.E0.Type, e.E1.Type, BinaryExpr.OpcodeString(e.Op));
@@ -801,6 +799,12 @@ namespace Microsoft.Dafny {
         expr.Type = new InferredTypeProxy();
 #endif
       }
+    }
+
+    private void SetPreTypeBoolFamily(Expression expr, string opString) {
+      expr.PreType = CreatePreTypeProxy($"result of {opString} operation");
+      AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
+      AddConfirmation("InBoolFamily", expr.PreType, expr.tok, "type of " + opString + " must be a boolean (got {0})");
     }
 
     /// <summary>

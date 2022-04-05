@@ -81,6 +81,64 @@ namespace Microsoft.Dafny {
     /// If the substitution has no effect, the return value is pointer-equal to 'this'
     /// </summary>
     public abstract PreType Substitute(Dictionary<TypeParameter, PreType> subst);
+
+    public bool IsLeafType() {
+      var t = Normalize();
+      if (!(t is DPreType pt)) {
+        return false;
+      } else if (pt.Decl is TraitDecl) {
+        return false;
+      }
+      // Now, it comes down to the type arguments
+      Contract.Assert(pt.Decl.TypeArgs.Count == pt.Arguments.Count);
+      for (var i = 0; i < pt.Decl.TypeArgs.Count; i++) {
+        switch (pt.Decl.TypeArgs[i].Variance) {
+          case TypeParameter.TPVariance.Non:
+            // this is fine for a leaf
+            break;
+          case TypeParameter.TPVariance.Co:
+            if (!pt.Arguments[i].IsLeafType()) {
+              return false;
+            }
+            break;
+          case TypeParameter.TPVariance.Contra:
+            if (!pt.Arguments[i].IsRootType()) {
+              return false;
+            }
+            break;
+        }
+      }
+      return true;
+    }
+
+    public bool IsRootType() {
+      var t = Normalize();
+      if (!(t is DPreType pt)) {
+        return false;
+      } else if (pt.Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0) {
+        return false;
+      }
+      // Now, it comes down to the type arguments
+      Contract.Assert(pt.Decl.TypeArgs.Count == pt.Arguments.Count);
+      for (var i = 0; i < pt.Decl.TypeArgs.Count; i++) {
+        switch (pt.Decl.TypeArgs[i].Variance) {
+          case TypeParameter.TPVariance.Non:
+            // this is fine for a root
+            break;
+          case TypeParameter.TPVariance.Co:
+            if (!pt.Arguments[i].IsRootType()) {
+              return false;
+            }
+            break;
+          case TypeParameter.TPVariance.Contra:
+            if (!pt.Arguments[i].IsLeafType()) {
+              return false;
+            }
+            break;
+        }
+      }
+      return true;
+    }
   }
 
   public class PreTypeProxy : PreType {
