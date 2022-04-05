@@ -1380,5 +1380,39 @@ namespace Microsoft.Dafny {
         ReportError(lhs, "LHS of assignment must denote a mutable variable or field");
       }
     }
+
+    void ResolveAlternatives(List<GuardedAlternative> alternatives, AlternativeLoopStmt loopToCatchBreaks, ICodeContext codeContext) {
+      Contract.Requires(alternatives != null);
+      Contract.Requires(codeContext != null);
+
+      // first, resolve the guards
+      foreach (var alternative in alternatives) {
+        ResolveExpression(alternative.Guard, new Resolver.ResolveOpts(codeContext, true));
+        SetPreTypeBoolFamily(alternative.Guard, "if/while case", "condition is expected to be of type bool, but is {0}");
+      }
+
+      if (loopToCatchBreaks != null) {
+        loopStack.Add(loopToCatchBreaks);  // push
+      }
+      foreach (var alternative in alternatives) {
+        scope.PushMarker();
+        dominatingStatementLabels.PushMarker();
+        if (alternative.IsBindingGuard) {
+          var exists = (ExistsExpr)alternative.Guard;
+          foreach (var v in exists.BoundVars) {
+            ScopePushAndReport(scope, v, "bound-variable");
+          }
+        }
+        ResolveAttributes(alternative, new Resolver.ResolveOpts(codeContext, true), false);
+        foreach (Statement ss in alternative.Body) {
+          ResolveStatementWithLabels(ss, codeContext);
+        }
+        dominatingStatementLabels.PopMarker();
+        scope.PopMarker();
+      }
+      if (loopToCatchBreaks != null) {
+        loopStack.RemoveAt(loopStack.Count - 1);  // pop
+      }
+    }
   }
 }
