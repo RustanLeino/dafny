@@ -439,49 +439,37 @@ namespace Microsoft.Dafny {
             AddComparableConstraint(e.E0.PreType, e.E1.PreType, expr.tok, "arguments must have comparable types (got {0} and {1})");
             break;
 
-#if SOON
           case BinaryExpr.Opcode.Disjoint:
-            Type disjointArgumentsType = new InferredTypeProxy();
-            ConstrainSubtypeRelation(disjointArgumentsType, e.E0.Type, expr, "arguments to {2} must have a common supertype (got {0} and {1})", e.E0.Type, e.E1.Type, BinaryExpr.OpcodeString(e.Op));
-            ConstrainSubtypeRelation(disjointArgumentsType, e.E1.Type, expr, "arguments to {2} must have a common supertype (got {0} and {1})", e.E0.Type, e.E1.Type, BinaryExpr.OpcodeString(e.Op));
-            AddXConstraint(expr.tok, "Disjointable", disjointArgumentsType, "arguments must be of a set or multiset type (got {0})");
-            expr.Type = Type.Bool;
+            SetPreTypeBoolFamilyOperator(expr, opString);
+            ConstrainToCommonSupertype(e, opString);
+            AddConfirmation("Disjointable", e.E0.PreType, expr.tok, "arguments must be of a set or multiset type (got {0})");
             break;
 
           case BinaryExpr.Opcode.Lt:
-          case BinaryExpr.Opcode.Le: {
-              if (e.Op == BinaryExpr.Opcode.Lt && (PartiallyResolveTypeForMemberSelection(e.E0.tok, e.E0.Type).IsIndDatatype || e.E0.Type.IsTypeParameter || PartiallyResolveTypeForMemberSelection(e.E1.tok, e.E1.Type).IsIndDatatype)) {
-                AddXConstraint(expr.tok, "RankOrderable", e.E0.Type, e.E1.Type, "arguments to rank comparison must be datatypes (got {0} and {1})");
-                e.ResolvedOp = BinaryExpr.ResolvedOpcode.RankLt;
-              } else {
-                var cmpType = new InferredTypeProxy();
-                var err = new TypeConstraint.ErrorMsgWithToken(expr.tok, "arguments to {2} must have a common supertype (got {0} and {1})", e.E0.Type, e.E1.Type, BinaryExpr.OpcodeString(e.Op));
-                ConstrainSubtypeRelation(cmpType, e.E0.Type, err);
-                ConstrainSubtypeRelation(cmpType, e.E1.Type, err);
-                AddXConstraint(expr.tok, "Orderable_Lt", e.E0.Type, e.E1.Type,
-                  "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be of a numeric type, bitvector type, ORDINAL, char, a sequence type, or a set-like type (instead got {0} and {1})");
-              }
-              expr.Type = Type.Bool;
-            }
+            // In the next line, "opString" is, perversely, used as the format string
+            AddGuardedConstraint("Lt", expr.tok, opString, e.E0.PreType, e.E1.PreType, e.PreType);
+            SetPreTypeBoolFamilyOperator(expr, opString);
+            break;
+
+          case BinaryExpr.Opcode.Le:
+            ConstrainToCommonSupertype(e, opString);
+            AddConfirmation("Orderable_Lt", e.E0.PreType, expr.tok,
+              "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, a sequence type, or a set-like type (instead got {0})");
+            SetPreTypeBoolFamilyOperator(expr, opString);
             break;
 
           case BinaryExpr.Opcode.Gt:
-          case BinaryExpr.Opcode.Ge: {
-              if (e.Op == BinaryExpr.Opcode.Gt && (PartiallyResolveTypeForMemberSelection(e.E0.tok, e.E0.Type).IsIndDatatype || PartiallyResolveTypeForMemberSelection(e.E1.tok, e.E1.Type).IsIndDatatype || e.E1.Type.IsTypeParameter)) {
-                AddXConstraint(expr.tok, "RankOrderable", e.E1.Type, e.E0.Type, "arguments to rank comparison must be datatypes (got {1} and {0})");
-                e.ResolvedOp = BinaryExpr.ResolvedOpcode.RankGt;
-              } else {
-                var cmpType = new InferredTypeProxy();
-                var err = new TypeConstraint.ErrorMsgWithToken(expr.tok, "arguments to {2} must have a common supertype (got {0} and {1})", e.E0.Type, e.E1.Type, BinaryExpr.OpcodeString(e.Op));
-                ConstrainSubtypeRelation(cmpType, e.E0.Type, err);
-                ConstrainSubtypeRelation(cmpType, e.E1.Type, err);
-                AddXConstraint(expr.tok, "Orderable_Gt", e.E0.Type, e.E1.Type,
-                  "arguments to " + BinaryExpr.OpcodeString(e.Op) + " must be of a numeric type, bitvector type, ORDINAL, char, or a set-like type (instead got {0} and {1})");
-              }
-              expr.Type = Type.Bool;
-            }
+            // In the next line, "opString" is, perversely, used as the format string
+            AddGuardedConstraint("Gt", expr.tok, opString, e.E0.PreType, e.E1.PreType, e.PreType);
+            SetPreTypeBoolFamilyOperator(expr, opString);
             break;
-#endif
+
+          case BinaryExpr.Opcode.Ge:
+            ConstrainToCommonSupertype(e, opString);
+            AddConfirmation("Orderable_Gt", e.E0.PreType, expr.tok,
+              "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, or a set-like type (instead got {0} and {1})");
+            SetPreTypeBoolFamilyOperator(expr, opString);
+            break;
 
           case BinaryExpr.Opcode.Add:
             expr.PreType = CreatePreTypeProxy("result of +");
@@ -777,6 +765,17 @@ namespace Microsoft.Dafny {
 
     private void ConstrainOperandTypes(BinaryExpr expr, string opString) {
       ConstrainOperandTypes(expr, opString, true, true);
+    }
+
+    private void ConstrainToCommonSupertype(BinaryExpr expr, string opString) {
+      var disjointArgumentsType = CreatePreTypeProxy($"element type of common {opString} supertype");
+      ConstrainToCommonSupertype(disjointArgumentsType, expr.E0.PreType, expr.E1.PreType, expr.tok, opString);
+    }
+
+    private void ConstrainToCommonSupertype(PreType commonSupertype, PreType a, PreType b, IToken tok, string opString) {
+      var errorFormat = $"arguments to {opString} must have a common supertype (got {{0}} and {{1}})";
+      AddSubtypeConstraint(commonSupertype, a, tok, errorFormat);
+      AddSubtypeConstraint(commonSupertype, b, tok, errorFormat);
     }
 
     private void ConstrainOperandTypes(BinaryExpr expr, string opString, bool applyToLeft, bool applyToRight) {

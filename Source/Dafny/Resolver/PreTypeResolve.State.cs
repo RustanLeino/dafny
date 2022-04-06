@@ -702,6 +702,42 @@ namespace Microsoft.Dafny {
             }
             break;
           }
+          case "Lt": {
+            var left = a0.Normalize() as DPreType;
+            var right = a1.Normalize() as DPreType;
+            if (left != null && (left.Decl is IndDatatypeDecl || left.Decl is TypeParameter)) {
+              AddConfirmation("RankOrderable", a1, constraint.tok,
+                $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
+            } else if (right != null && right.Decl is IndDatatypeDecl) {
+              AddConfirmation("RankOrderableOrTypeParameter", a0, constraint.tok,
+                $"arguments to rank comparison must be datatypes (got {{0}} and {a1})");
+            } else if (left != null || right != null) {
+              var resultPreType = constraint.Arguments[2];
+              var opString = constraint.ErrorFormatString;
+              ConstrainToCommonSupertype(resultPreType, a0, a1, constraint.tok, opString);
+              AddConfirmation("Orderable_Lt", a0, constraint.tok,
+                "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, a sequence type, or a set-like type (instead got {0})");
+            }
+            break;
+          }
+          case "Gt": {
+            var left = a0.Normalize() as DPreType;
+            var right = a1.Normalize() as DPreType;
+            if (left != null && left.Decl is IndDatatypeDecl) {
+              AddConfirmation("RankOrderableOrTypeParameter", a1, constraint.tok,
+                $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
+            } else if (right != null && (right.Decl is IndDatatypeDecl || right.Decl is TypeParameter)) {
+              AddConfirmation("RankOrderable", a0, constraint.tok,
+                $"arguments to rank comparison must be datatypes (got {{0}} and {a1})");
+            } else if (left != null || right != null) {
+              var resultPreType = constraint.Arguments[2];
+              var opString = constraint.ErrorFormatString;
+              ConstrainToCommonSupertype(resultPreType, a0, a1, constraint.tok, opString);
+              AddConfirmation("Orderable_Gt", a0, constraint.tok,
+                "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, or a set-like type (instead got {0})");
+            }
+            break;
+          }
           default:
             Contract.Assert(false); // unexpected case
             throw new cce.UnreachableException();
@@ -806,7 +842,8 @@ namespace Microsoft.Dafny {
           okay = false;
         } else {
           var pt = (DPreType)preType;
-          var familyDeclName = AncestorDecl(pt.Decl).Name;
+          var ancestorDecl = AncestorDecl(pt.Decl);
+          var familyDeclName = ancestorDecl.Name;
           switch (c.Check) {
             case "InIntFamily":
               okay = familyDeclName == "int";
@@ -826,12 +863,14 @@ namespace Microsoft.Dafny {
             case "IsNullableRefType":
               okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
               break;
+            case "IsBitvector":
+              okay = IsBitvectorName(familyDeclName);
+              break;
             case "IntLikeOrBitvector":
-              if (familyDeclName == "int" || IsBitvectorName(familyDeclName)) {
-                okay = true;
-              } else {
-                okay = false;
-              }
+              okay = familyDeclName == "int" || IsBitvectorName(familyDeclName);
+              break;
+            case "NumericOrBitvector":
+              okay = familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName);
               break;
             case "Plussable":
               switch (familyDeclName) {
@@ -866,7 +905,35 @@ namespace Microsoft.Dafny {
                   break;
               }
               break;
-
+            case "Disjointable":
+              okay = familyDeclName == "set" || familyDeclName == "iset" || familyDeclName == "multiset";
+              break;
+            case "Orderable_Lt":
+            case "Orderable_Gt":
+              switch (familyDeclName) {
+                case "int":
+                case "real":
+                case "ORDINAL":
+                case "char":
+                case "set":
+                case "iset":
+                case "multiset":
+                  okay = true;
+                  break;
+                case "seq":
+                  okay = c.Check == "Orderable_Lt";
+                  break;
+                default:
+                  okay = IsBitvectorName(familyDeclName);
+                  break;
+              }
+              break;
+            case "RankOrderable":
+              okay = ancestorDecl is IndDatatypeDecl;
+              break;
+            case "RankOrderableOrTypeParameter":
+              okay = ancestorDecl is IndDatatypeDecl || ancestorDecl is TypeParameter;
+              break;
             default:
               Contract.Assert(false); // unexpected case
               throw new cce.UnreachableException();
