@@ -133,6 +133,15 @@ namespace Microsoft.Dafny {
       return decl;
     }
 
+    public static bool IsBitvectorName(string name) {
+      Contract.Requires(name != null);
+      if (name.StartsWith("bv")) {
+        var bits = name.Substring(2);
+        return bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
+      }
+      return false;
+    }
+
     public PreTypeResolver(Resolver resolver) {
       Contract.Requires(resolver != null);
       this.resolver = resolver;

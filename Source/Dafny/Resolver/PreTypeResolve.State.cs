@@ -644,27 +644,58 @@ namespace Microsoft.Dafny {
       guardedConstraints = new();
       var anythingChanged = false;
       foreach (var constraint in constraints) {
+        var a0 = 0 < constraint.Arguments.Length ? constraint.Arguments[0].Normalize() : null;
+        var a1 = 1 < constraint.Arguments.Length ? constraint.Arguments[1].Normalize() : null;
         var used = false;
         switch (constraint.Kind) {
-          case "Plussable":
-            // TODO
+          case "Minusable": {
+            // For "Minusable left right", the following cases are allowed:
+            // Uniform cases:
+            //   - int int
+            //   - real real
+            //   - bv bv
+            //   - ORDINAL ORDINAL
+            //   - char char
+            //   - set<T> set<V>
+            //   - iset<T> iset<V>
+            //   - multiset<T> multiset<T>
+            // Non-uniform cases:
+            //   - map<T, U> set<V>
+            //   - imap<T, U> set<V>
+            //
+            // The tests below distinguish between the uniform and non-uniform cases, but otherwise may allow some cases
+            // that are not included above. The instigator of the "Minusable" guard will arrange to confirm that only the
+            // expected types are allowed.
+            var left = a0.Normalize() as DPreType;
+            var right = a1.Normalize() as DPreType;
+            var familyDeclNameLeft = left == null ? null : AncestorDecl(left.Decl).Name;
+            var familyDeclNameRight = right == null ? null : AncestorDecl(right.Decl).Name;
+            if (familyDeclNameLeft == "map" || familyDeclNameLeft == "imap") {
+              Contract.Assert(left.Arguments.Count == 2);
+              var st = new DPreType(BuiltInTypeDecl("set"), new List<PreType>() { left.Arguments[0] });
+              DebugPrint($"    DEBUG: guard applies: Minusable {a0} {a1}, converting to {st} :> {a1}");
+              AddSubtypeConstraint(st, a1, constraint.tok,
+                "map subtraction expects right-hand operand to have type {0} (instead got {1})");
+              used = true;
+            } else if (familyDeclNameLeft != null || (familyDeclNameRight != null && familyDeclNameRight != "set")) {
+              DebugPrint($"    DEBUG: guard applies: Minusable {a0} {a1}, converting to {a0} :> {a1}");
+              AddSubtypeConstraint(a0, a1, constraint.tok,
+                "type of right argument to - ({0}) must agree with the result type ({1})");
+              used = true;
+            }
             break;
-          case "Mullable":
-            // TODO
-            break;
+          }
           case "Innable": {
             // For "Innable x s", if s is known, then:
             // if s == c<a> or s == c<a, b> where c is a collection type, then a :> x, else error.
             Contract.Assert(constraint.Arguments.Length == 2);
-            var a0 = constraint.Arguments[0].Normalize();
-            var a1 = constraint.Arguments[1];
             var coll = a1.UrAncestor(this).AsCollectionType();
             if (coll != null) {
               DebugPrint($"    DEBUG: guard applies: Innable {a0} {a1}");
               AddSubtypeConstraint(coll.Arguments[0], a0, constraint.tok,
                 "expecting element type to be assignable to {0} (got {1})");
               used = true;
-            } else if (a1.Normalize() is DPreType) {
+            } else if (a1 is DPreType) {
               // type head is determined and it isn't a collection type
               ReportError(constraint.tok, constraint.ErrorMessage());
               used = true;
@@ -769,7 +800,7 @@ namespace Microsoft.Dafny {
 
     void ConfirmTypeConstraints() {
       foreach (var c in confirmations) {
-        var okay = true;
+        bool okay;
         var preType = c.PreType.Normalize();
         if (preType is PreTypeProxy) {
           okay = false;
@@ -796,13 +827,43 @@ namespace Microsoft.Dafny {
               okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
               break;
             case "IntLikeOrBitvector":
-              if (familyDeclName == "int") {
+              if (familyDeclName == "int" || IsBitvectorName(familyDeclName)) {
                 okay = true;
-              } else if (familyDeclName.StartsWith("bv")) {
-                var bits = familyDeclName.Substring(2);
-                okay = bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
               } else {
                 okay = false;
+              }
+              break;
+            case "Plussable":
+              switch (familyDeclName) {
+                case "int":
+                case "real":
+                case "ORDINAL":
+                case "char":
+                case "seq":
+                case "set":
+                case "iset":
+                case "multiset":
+                case "map":
+                case "imap":
+                  okay = true;
+                  break;
+                default:
+                  okay = IsBitvectorName(familyDeclName);
+                  break;
+              }
+              break;
+            case "Mullable":
+              switch (familyDeclName) {
+                case "int":
+                case "real":
+                case "set":
+                case "iset":
+                case "multiset":
+                  okay = true;
+                  break;
+                default:
+                  okay = IsBitvectorName(familyDeclName);
+                  break;
               }
               break;
 
