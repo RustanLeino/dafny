@@ -176,14 +176,16 @@ namespace Microsoft.Dafny {
   public class DPreType : PreType {
     public readonly TopLevelDecl Decl;
     public readonly List<PreType> Arguments;
+    public readonly Type PrintableType;
 
-    public DPreType(TopLevelDecl decl, List<PreType> arguments) {
+    public DPreType(TopLevelDecl decl, List<PreType> arguments, Type printableType = null) {
       Decl = decl;
       Arguments = arguments;
+      PrintableType = printableType;
     }
 
-    public DPreType(TopLevelDecl decl, PreTypeResolver preTypeResolver)
-      : this(decl, decl.TypeArgs.ConvertAll(_ => preTypeResolver.CreatePreTypeProxy())) {
+    public DPreType(TopLevelDecl decl, PreTypeResolver preTypeResolver, Type printableType = null)
+      : this(decl, decl.TypeArgs.ConvertAll(_ => preTypeResolver.CreatePreTypeProxy()), printableType) {
       Contract.Requires(decl != null);
       Contract.Requires(preTypeResolver != null);
     }
@@ -196,7 +198,13 @@ namespace Microsoft.Dafny {
       if (Arguments.Count == 0) {
         return name;
       }
-      return $"{name}<{Util.Comma(Arguments, arg => arg.ToString())}>";
+      var s = $"{name}<{Util.Comma(Arguments, arg => arg.ToString())}>";
+      if (PrintableType != null) {
+#if PRINT_SYNONYMS
+        s += $"/*aka {PrintableType}*/";
+#endif
+      }
+      return s;
     }
 
     public bool HasTraitSupertypes() {

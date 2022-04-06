@@ -15079,7 +15079,7 @@ namespace Microsoft.Dafny {
               expr.Type = new InferredTypeProxy();
               AddXConstraint(e.tok, "Minusable", expr.Type, "type of - must be of a numeric type, bitvector type, ORDINAL, char, or a set-like or map-like type (instead got {0})");
               ConstrainSubtypeRelation(expr.Type, e.E0.Type, expr.tok, "type of left argument to - ({0}) must agree with the result type ({1})", e.E0.Type, expr.Type);
-              // The following handles map subtraction, but does not in an unfortunately restrictive way.
+              // The following handles map subtraction, but does so in an unfortunately restrictive way.
               // First, it would be nice to delay the decision of it this is a map subtraction or not. This settles
               // for the simple way to decide based on what is currently known about the result type, which is also
               // done, for example, when deciding if "<" denotes rank ordering on datatypes.

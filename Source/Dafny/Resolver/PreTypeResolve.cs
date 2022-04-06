@@ -86,22 +86,23 @@ namespace Microsoft.Dafny {
       return proxy;
     }
 
-    public PreType Type2PreType(Type type, string description = null) {
+    public PreType Type2PreType(Type type, string description = null, Type printableType = null) {
       Contract.Requires(type != null);
 
+      printableType ??= type.Normalize();
       type = type.NormalizeExpand();
       if (type is BoolType) {
-        return new DPreType(BuiltInTypeDecl("bool"), this);
+        return new DPreType(BuiltInTypeDecl("bool"), this, printableType);
       } else if (type is CharType) {
-        return new DPreType(BuiltInTypeDecl("char"), this);
+        return new DPreType(BuiltInTypeDecl("char"), this, printableType);
       } else if (type is IntType) {
-        return new DPreType(BuiltInTypeDecl("int"), this);
+        return new DPreType(BuiltInTypeDecl("int"), this, printableType);
       } else if (type is RealType) {
-        return new DPreType(BuiltInTypeDecl("real"), this);
+        return new DPreType(BuiltInTypeDecl("real"), this, printableType);
       } else if (type is BigOrdinalType) {
-        return new DPreType(BuiltInTypeDecl("ORDINAL"), this);
+        return new DPreType(BuiltInTypeDecl("ORDINAL"), this, printableType);
       } else if (type is BitvectorType bitvectorType) {
-        return new DPreType(BuiltInTypeDecl("bv" + bitvectorType.Width), this);
+        return new DPreType(BuiltInTypeDecl("bv" + bitvectorType.Width), this, printableType);
       } else if (type is CollectionType) {
         var name =
           type is SetType st ? (st.Finite ? "set" : "iset") :
@@ -109,7 +110,7 @@ namespace Microsoft.Dafny {
           type is MapType mt ? (mt.Finite ? "map" : "imap") :
           "seq";
         var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
-        return new DPreType(BuiltInTypeDecl(name), args);
+        return new DPreType(BuiltInTypeDecl(name), args, printableType);
       } else if (type is UserDefinedType udt) {
         var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
         return new DPreType(udt.ResolvedClass, args);
