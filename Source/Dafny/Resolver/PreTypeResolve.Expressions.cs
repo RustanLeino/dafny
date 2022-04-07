@@ -7,13 +7,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Numerics;
 using System.Diagnostics.Contracts;
-using System.Runtime.Intrinsics.X86;
 using Microsoft.Boogie;
-using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
@@ -178,11 +175,10 @@ namespace Microsoft.Dafny {
           e.PreType = CreatePreTypeProxy("Resolver_IdentifierExpr.ResolverType_Type"); // the rest of type checking assumes actual types
         }
 
-#if TODO
-      } else if (expr is ApplySuffix) {
-        var e = (ApplySuffix)expr;
-        ResolveApplySuffix(e, opts, false);
+      } else if (expr is ApplySuffix applySuffix) {
+        ResolveApplySuffix(applySuffix, opts, false);
 
+#if TODO
       } else if (expr is MemberSelectExpr) {
         var e = (MemberSelectExpr)expr;
         ResolveExpression(e.Obj, opts);
@@ -799,7 +795,7 @@ namespace Microsoft.Dafny {
     /// "receiverPreType" is an unresolved proxy type and that, after solving more type constraints, "receiverPreType"
     /// eventually gets set to a type more specific than "tentativeReceiverType".
     /// </summary>
-    (MemberDecl/*?*/, DPreType/*?*/) FindMember(Bpl.IToken tok, PreType receiverPreType, string memberName) {
+    (MemberDecl/*?*/, DPreType/*?*/) FindMember(IToken tok, PreType receiverPreType, string memberName) {
       Contract.Requires(tok != null);
       Contract.Requires(receiverPreType != null);
       Contract.Requires(memberName != null);
@@ -942,6 +938,7 @@ namespace Microsoft.Dafny {
         if (member.IsStatic) {
           receiver = new StaticReceiverExpr(expr.tok, UserDefinedType.FromTopLevelDecl(expr.tok, currentClass, currentClass.TypeArgs),
             (TopLevelDeclWithMembers)member.EnclosingClass, true);
+          receiver.PreType = Type2PreType(receiver.Type);
         } else {
           if (!scope.AllowInstance) {
             if (complain) {
@@ -963,9 +960,10 @@ namespace Microsoft.Dafny {
         if (ResolveDatatypeConstructor(expr, args, opts, complain, pair, name, ref r, ref rWithArgs)) {
           return null;
         }
+#endif
       } else if (resolver.moduleInfo.TopLevels.TryGetValue(name, out var decl)) {
         // ----- 3. Member of the enclosing module
-        if (decl is AmbiguousTopLevelDecl ambiguousTopLevelDecl) {
+        if (decl is Resolver.AmbiguousTopLevelDecl ambiguousTopLevelDecl) {
           if (complain) {
             ReportError(expr.tok,
               "The name {0} ambiguously refers to a type in one of the modules {1} (try qualifying the type name with the module name)",
@@ -976,7 +974,7 @@ namespace Microsoft.Dafny {
           }
         } else {
           // We have found a module name or a type name, neither of which is an expression. However, the NameSegment we're
-          // looking at may be followed by a further suffix that makes this into an expresion. We postpone the rest of the
+          // looking at may be followed by a further suffix that makes this into an expression. We postpone the rest of the
           // resolution to any such suffix. For now, we create a temporary expression that will never be seen by the compiler
           // or verifier, just to have a placeholder where we can recorded what we have found.
           if (!isLastNameSegment) {
@@ -991,9 +989,10 @@ namespace Microsoft.Dafny {
               }
             }
           }
-          r = CreateResolver_IdentifierExpr(expr.tok, name, expr.OptTypeArguments, decl);
+          r = resolver.CreateResolver_IdentifierExpr(expr.tok, name, expr.OptTypeArguments, decl);
         }
 
+#if SOON
       } else if (resolver.moduleInfo.StaticMembers.TryGetValue(name, out member)) {
         // ----- 4. static member of the enclosing module
         Contract.Assert(member.IsStatic); // moduleInfo.StaticMembers is supposed to contain only static members of the module's implicit class _default
@@ -1014,8 +1013,8 @@ namespace Microsoft.Dafny {
         if (ResolveDatatypeConstructor(expr, args, opts, complain, pair, name, ref r, ref rWithArgs)) {
           return null;
         }
-#endif
 
+#endif
       } else {
         // ----- None of the above
         if (complain) {
@@ -1031,7 +1030,10 @@ namespace Microsoft.Dafny {
         expr.PreType = CreatePreTypeProxy();
       } else {
         expr.ResolvedExpression = r;
-        // TODO: do we need something analogous to this for pre-types?  expr.Type = r.Type.UseInternalSynonym();
+        if (r.Type != null) {
+          // The following may be needed to meet some .WasResolved() expectations
+          expr.Type = r.Type.UseInternalSynonym();
+        }
         expr.PreType = r.PreType;
       }
       return rWithArgs;
@@ -1085,23 +1087,15 @@ namespace Microsoft.Dafny {
 
       Expression r = null;  // the resolved expression, if successful
       Expression rWithArgs = null;  // the resolved expression after incorporating "args"
-#if SOON
-      MemberDecl member = null;
-#endif
 
       var name = opts.isReveal ? "reveal_" + expr.SuffixName : expr.SuffixName;
       var lhs = expr.Lhs.Resolved;
       if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Module) {
-#if SOON
         var ri = (Resolver_IdentifierExpr)lhs;
-        var sig = ((ModuleDecl)ri.Decl).AccessibleSignature(useCompileSignatures);
-        sig = GetSignature(sig);
-        // For 0:
-        Tuple<DatatypeCtor, bool> pair;
-        // For 1:
-        TopLevelDecl decl;
+        var sig = ((ModuleDecl)ri.Decl).AccessibleSignature(resolver.useCompileSignatures);
+        sig = Resolver.GetSignatureExt(sig, resolver.useCompileSignatures);
 
-        if (isLastNameSegment && sig.Ctors.TryGetValue(name, out pair)) {
+        if (isLastNameSegment && sig.Ctors.TryGetValue(name, out var pair)) {
           // ----- 0. datatype constructor
           if (pair.Item2) {
             // there is more than one constructor with this name
@@ -1110,6 +1104,7 @@ namespace Microsoft.Dafny {
             if (expr.OptTypeArguments != null) {
               ReportError(expr.tok, "datatype constructor does not take any type parameters ('{0}')", name);
             }
+#if SOON
             var rr = new DatatypeValue(expr.tok, pair.Item1.EnclosingDatatype.Name, name, args ?? new List<ActualBinding>());
             ResolveDatatypeValue(opts, rr, pair.Item1.EnclosingDatatype, null);
 
@@ -1119,15 +1114,16 @@ namespace Microsoft.Dafny {
               r = rr;  // this doesn't really matter, since we're returning an "rWithArgs" (but if would have been proper to have returned the ctor as a lambda)
               rWithArgs = rr;
             }
+#endif
           }
-        } else if (sig.TopLevels.TryGetValue(name, out decl)) {
+        } else if (sig.TopLevels.TryGetValue(name, out var decl)) {
           // ----- 1. Member of the specified module
           if (decl is Resolver.AmbiguousTopLevelDecl) {
             var ad = (Resolver.AmbiguousTopLevelDecl)decl;
             ReportError(expr.tok, "The name {0} ambiguously refers to a type in one of the modules {1} (try qualifying the type name with the module name)", expr.SuffixName, ad.ModuleNames());
           } else {
             // We have found a module name or a type name, neither of which is an expression. However, the ExprDotName we're
-            // looking at may be followed by a further suffix that makes this into an expresion. We postpone the rest of the
+            // looking at may be followed by a further suffix that makes this into an expression. We postpone the rest of the
             // resolution to any such suffix. For now, we create a temporary expression that will never be seen by the compiler
             // or verifier, just to have a placeholder where we can recorded what we have found.
             if (!isLastNameSegment) {
@@ -1137,9 +1133,9 @@ namespace Microsoft.Dafny {
                 ReportError(expr.tok, "To access members of {0} '{1}', write '{1}', not '{2}'", decl.WhatKind, decl.Name, name);
               }
             }
-            r = CreateResolver_IdentifierExpr(expr.tok, name, expr.OptTypeArguments, decl);
+            r = resolver.CreateResolver_IdentifierExpr(expr.tok, name, expr.OptTypeArguments, decl);
           }
-        } else if (sig.StaticMembers.TryGetValue(name, out member)) {
+        } else if (sig.StaticMembers.TryGetValue(name, out var member)) {
           // ----- 2. static member of the specified module
           Contract.Assert(member.IsStatic); // moduleInfo.StaticMembers is supposed to contain only static members of the module's implicit class _default
           if (member is Resolver.AmbiguousMemberDecl) {
@@ -1152,7 +1148,6 @@ namespace Microsoft.Dafny {
         } else {
           ReportError(expr.tok, "unresolved identifier: {0}", name);
         }
-#endif
 
       } else if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Type) {
 #if SOON
@@ -1287,12 +1282,11 @@ namespace Microsoft.Dafny {
           subst.Add(function.TypeArgs[i], ta);
         }
         subst = BuildPreTypeArgumentSubstitute(subst, receiverPreTypeBound);
-#if SOON
-        rr.Type = SelectAppropriateArrowType(function.tok,
-          function.Formals.ConvertAll(f => f.PreType.Substitute(subst)),
-          Type2PreType(function.ResultType).Substitute(subst),
-          function.Reads.Count != 0, function.Req.Count != 0);
-#endif
+        var inParamTypes = function.Formals.ConvertAll(f => f.PreType.Substitute(subst));
+        var resultType = Type2PreType(function.ResultType).Substitute(subst);
+        var arity = inParamTypes.Count;
+        var typeArgsAndResult = Util.Snoc(inParamTypes, resultType);
+        rr.PreType = new DPreType(BuiltInArrowTypeDecl(arity), typeArgsAndResult);
 #if SOON
         AddCallGraphEdge(opts.codeContext, function, rr, IsFunctionReturnValue(function, args, opts));
 #endif
@@ -1323,6 +1317,133 @@ namespace Microsoft.Dafny {
         rr.PreType = CreatePreTypeProxy($"unused -- call to {method.WhatKind} {method.Name}");  // fill in this field, in order to make "rr" resolved
       }
       return rr;
+    }
+
+    Resolver.MethodCallInformation ResolveApplySuffix(ApplySuffix e, Resolver.ResolveOpts opts, bool allowMethodCall) {
+      Contract.Requires(e != null);
+      Contract.Requires(opts != null);
+      Contract.Ensures(Contract.Result<Resolver.MethodCallInformation>() == null || allowMethodCall);
+
+      Expression r = null;  // upon success, the expression to which the ApplySuffix resolves
+      var errorCount = ErrorCount;
+      if (e.Lhs is NameSegment) {
+        r = ResolveNameSegment((NameSegment)e.Lhs, true, e.Bindings.ArgumentBindings, opts, allowMethodCall);
+        // note, if r is non-null, then e.Args have been resolved and r is a resolved expression that incorporates e.Args
+      } else if (e.Lhs is ExprDotName) {
+        r = ResolveDotSuffix((ExprDotName)e.Lhs, true, e.Bindings.ArgumentBindings, opts, allowMethodCall);
+        // note, if r is non-null, then e.Args have been resolved and r is a resolved expression that incorporates e.Args
+      } else {
+        ResolveExpression(e.Lhs, opts);
+      }
+      if (e.Lhs.PreType == null) {
+        // some error had been detected during the attempted resolution of e.Lhs
+        e.Lhs.PreType = CreatePreTypeProxy("unresolved ApplySuffix LHS");
+      }
+      Label atLabel = null;
+      if (e.AtTok != null) {
+        atLabel = dominatingStatementLabels.Find(e.AtTok.val);
+        if (atLabel == null) {
+          ReportError(e.AtTok, "no label '{0}' in scope at this time", e.AtTok.val);
+        }
+      }
+      if (r == null) {
+        // e.Lhs denotes a function value, or at least it's used as if it were
+        if (e.Lhs.PreType.Normalize() is DPreType lhsPreType && DPreType.IsArrowType(lhsPreType.Decl)) {
+          // e.Lhs does denote a function value
+          // In the general case, we'll resolve this as an ApplyExpr, but in the more common case of the Lhs
+          // naming a function directly, we resolve this as a FunctionCallExpr.
+          var mse = e.Lhs is NameSegment || e.Lhs is ExprDotName ? e.Lhs.Resolved as MemberSelectExpr : null;
+          var callee = mse?.Member as Function;
+          if (atLabel != null && !(callee is TwoStateFunction)) {
+            ReportError(e.AtTok, "an @-label can only be applied to a two-state function");
+            atLabel = null;
+          }
+          if (callee != null) {
+            // resolve as a FunctionCallExpr instead of as an ApplyExpr(MemberSelectExpr)
+            var rr = new FunctionCallExpr(e.Lhs.tok, callee.Name, mse.Obj, e.tok, e.Bindings, atLabel);
+            rr.Function = callee;
+#if SOON
+            rr.TypeApplication_AtEnclosingClass = mse.TypeApplication_AtEnclosingClass;
+            rr.TypeApplication_JustFunction = mse.TypeApplication_JustMember;
+            var typeMap = mse.TypeArgumentSubstitutionsAtMemberDeclaration();
+            var preTypeMap = BuildPreTypeArgumentSubstitute(
+                typeMap.Keys.ToDictionary(tp => tp, tp => Type2PreType(typeMap[tp])));
+#else
+            var preTypeMap = new Dictionary<TypeParameter, PreType>(); // BOGUS!
+#endif
+            ResolveActualParameters(rr.Bindings, callee.Formals, e.tok, callee, opts, preTypeMap, callee.IsStatic ? null : mse.Obj);
+            rr.PreType = Type2PreType(callee.ResultType).Substitute(preTypeMap);
+            if (errorCount == ErrorCount) {
+              Contract.Assert(!(mse.Obj is StaticReceiverExpr) || callee.IsStatic);  // this should have been checked already
+              Contract.Assert(callee.Formals.Count == rr.Args.Count);  // this should have been checked already
+            }
+            // further bookkeeping
+            if (callee is ExtremePredicate) {
+              ((ExtremePredicate)callee).Uses.Add(rr);
+            }
+            r = rr;
+          } else {
+            // resolve as an ApplyExpr
+            var formals = new List<Formal>();
+            for (var i = 0; i < lhsPreType.Arguments.Count; i++) {
+              var argType = lhsPreType.Arguments[i];
+#if SOON
+              var formal = new ImplicitFormal(e.tok, "_#p" + i, argType, true, false);
+#else
+              var formal = new ImplicitFormal(e.tok, "_#p" + i, Type.Int /*BOGUS!*/, true, false);
+#endif
+              formals.Add(formal);
+            }
+            ResolveActualParameters(e.Bindings, formals, e.tok, lhsPreType, opts, new Dictionary<TypeParameter, PreType>(), null);
+            r = new ApplyExpr(e.Lhs.tok, e.Lhs, e.Args);
+            r.PreType = lhsPreType.Arguments.Last();
+          }
+        } else {
+          // e.Lhs is used as if it were a function value, but it isn't
+          var lhs = e.Lhs.Resolved;
+          if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Module) { // TODO
+            ReportError(e.tok, "name of module ({0}) is used as a function", ((Resolver_IdentifierExpr)lhs).Decl.Name);
+          } else if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Type) { // TODO
+            var ri = (Resolver_IdentifierExpr)lhs;
+            ReportError(e.tok, "name of {0} ({1}) is used as a function", ri.Decl.WhatKind, ri.Decl.Name);
+          } else {
+            if (lhs is MemberSelectExpr mse && mse.Member is Method) {
+              if (atLabel != null) {
+                Contract.Assert(mse != null); // assured by the parser
+                if (mse.Member is TwoStateLemma) {
+                  mse.AtLabel = atLabel;
+                } else {
+                  ReportError(e.AtTok, "an @-label can only be applied to a two-state lemma");
+                }
+              }
+              if (allowMethodCall) {
+#if TODO
+                var cRhs = new MethodCallInformation(e.tok, mse, e.Bindings.ArgumentBindings);
+                return cRhs;
+#else
+                return null; // TODO
+#endif
+              } else {
+                ReportError(e.tok, "{0} call is not allowed to be used in an expression context ({1})", mse.Member.WhatKind, mse.Member.Name);
+              }
+            } else if (lhs != null) {  // if e.Lhs.Resolved is null, then e.Lhs was not successfully resolved and an error has already been reported
+              ReportError(e.tok, "non-function expression (of type {0}) is called with parameters", e.Lhs.Type);
+            }
+          }
+          // resolve the arguments, even in the presence of the errors above
+          foreach (var binding in e.Bindings.ArgumentBindings) {
+            ResolveExpression(binding.Actual, opts);
+          }
+        }
+      }
+      if (r == null) {
+        // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .PreType
+        e.PreType = CreatePreTypeProxy("unresolved ApplySuffix");
+      } else {
+        e.ResolvedExpression = r;
+        e.PreType = r.PreType;
+      }
+      return null; // not a method call
     }
 
   }

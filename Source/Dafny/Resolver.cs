@@ -17,8 +17,6 @@ using System.Reflection;
 using JetBrains.Annotations;
 using Microsoft.BaseTypes;
 using Microsoft.Boogie;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.Dafny.Plugins;
 
 namespace Microsoft.Dafny {
   public class Resolver {
@@ -176,7 +174,7 @@ namespace Microsoft.Dafny {
       }
     }
 
-    class AmbiguousMemberDecl : MemberDecl, IAmbiguousThing<MemberDecl> // only used with "classes"
+    public class AmbiguousMemberDecl : MemberDecl, IAmbiguousThing<MemberDecl> // only used with "classes"
     {
       public static MemberDecl Create(ModuleDefinition m, MemberDecl a, MemberDecl b) {
         ISet<MemberDecl> s;
@@ -240,7 +238,7 @@ namespace Microsoft.Dafny {
     private Dictionary<TypeParameter, Type> SelfTypeSubstitution;
     readonly Graph<ModuleDecl> dependencies = new Graph<ModuleDecl>();
     private ModuleSignature systemNameInfo = null;
-    private bool useCompileSignatures = false;
+    public bool useCompileSignatures = false;
 
     private List<IRewriter> rewriters;
     private RefinementTransformer refinementTransformer;
@@ -16063,7 +16061,7 @@ namespace Microsoft.Dafny {
           }
         } else {
           // We have found a module name or a type name, neither of which is an expression. However, the NameSegment we're
-          // looking at may be followed by a further suffix that makes this into an expresion. We postpone the rest of the
+          // looking at may be followed by a further suffix that makes this into an expression. We postpone the rest of the
           // resolution to any such suffix. For now, we create a temporary expression that will never be seen by the compiler
           // or verifier, just to have a placeholder where we can recorded what we have found.
           if (!isLastNameSegment) {
@@ -16259,7 +16257,7 @@ namespace Microsoft.Dafny {
       }
     }
 
-    Resolver_IdentifierExpr CreateResolver_IdentifierExpr(IToken tok, string name, List<Type> optTypeArguments, TopLevelDecl decl) {
+    public Resolver_IdentifierExpr CreateResolver_IdentifierExpr(IToken tok, string name, List<Type> optTypeArguments, TopLevelDecl decl) {
       Contract.Requires(tok != null);
       Contract.Requires(name != null);
       Contract.Requires(decl != null);
@@ -16372,7 +16370,7 @@ namespace Microsoft.Dafny {
             reporter.Error(MessageSource.Resolver, expr.tok, "The name {0} ambiguously refers to a type in one of the modules {1} (try qualifying the type name with the module name)", expr.SuffixName, ad.ModuleNames());
           } else {
             // We have found a module name or a type name, neither of which is an expression. However, the ExprDotName we're
-            // looking at may be followed by a further suffix that makes this into an expresion. We postpone the rest of the
+            // looking at may be followed by a further suffix that makes this into an expression. We postpone the rest of the
             // resolution to any such suffix. For now, we create a temporary expression that will never be seen by the compiler
             // or verifier, just to have a placeholder where we can recorded what we have found.
             if (!isLastNameSegment) {
@@ -17234,7 +17232,7 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private static ModuleSignature GetSignatureExt(ModuleSignature sig, bool useCompileSignatures) {
+    public static ModuleSignature GetSignatureExt(ModuleSignature sig, bool useCompileSignatures) {
       Contract.Requires(sig != null);
       Contract.Ensures(Contract.Result<ModuleSignature>() != null);
       if (useCompileSignatures) {

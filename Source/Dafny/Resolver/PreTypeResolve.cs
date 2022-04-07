@@ -76,6 +76,16 @@ namespace Microsoft.Dafny {
       return decl;
     }
 
+    TopLevelDecl BuiltInArrowTypeDecl(int arity) {
+      Contract.Requires(0 <= arity);
+      var name = $"~>{arity}";
+      if (!preTypeBuiltins.TryGetValue(name, out var decl)) {
+        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, arity + 1, _ => false, null);
+        preTypeBuiltins.Add(name, decl);
+      }
+      return decl;
+    }
+
     private int typeProxyCount = 0; // used to give each PreTypeProxy a unique ID
 
     private readonly List<(PreTypeProxy, string)> allPreTypeProxies = new();

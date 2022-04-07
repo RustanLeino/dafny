@@ -10079,7 +10079,7 @@ namespace Microsoft.Dafny {
   /// <summary>
   /// This class is used only inside the resolver itself. It gets hung in the AST in uncompleted name segments.
   /// </summary>
-  class Resolver_IdentifierExpr : Expression {
+  public class Resolver_IdentifierExpr : Expression {
     public readonly TopLevelDecl Decl;
     public readonly List<Type> TypeArgs;
     [ContractInvariantMethod]
@@ -12719,7 +12719,22 @@ namespace Microsoft.Dafny {
       }
       set {
         if (ResolvedExpression_ != null) {
-          value.PreType = ResolvedExpression_.PreType;
+          var preTypeResolvedExpression = ResolvedExpression_;
+          var newResolvedExpression = value;
+          newResolvedExpression.PreType = preTypeResolvedExpression.PreType;
+          if (preTypeResolvedExpression is MemberSelectExpr oldMse && newResolvedExpression is MemberSelectExpr newMse) {
+            Contract.Assert(oldMse.PreType != null);
+            Contract.Assert(oldMse.Obj.PreType != null);
+            if (newMse.Obj.PreType != null) {
+              Contract.Assert(PreType.Same(oldMse.Obj.PreType, newMse.Obj.PreType));
+            } else {
+              newMse.Obj.PreType = oldMse.Obj.PreType;
+            }
+          } else {
+            // we expect that either both are MemberSelectExpr's or neither is
+            Contract.Assert(preTypeResolvedExpression is not MemberSelectExpr);
+            Contract.Assert(newResolvedExpression is not MemberSelectExpr);
+          }
         }
         ResolvedExpression_ = value;
       }
@@ -12879,6 +12894,31 @@ namespace Microsoft.Dafny {
       SubstMap = substMap;
       TypeMap = typeMap;
       Type = Resolver.SubstType(formal.Type, typeMap);
+    }
+  }
+
+  /// <summary>
+  /// TODO: This class is a bit sketchy. It should probably be used to replace DefaultValueExpression in some way.
+  /// </summary>
+  public class DefaultValueExpressionPreType : ConcreteSyntaxExpression {
+    public readonly Formal Formal;
+    public readonly Expression Receiver;
+    public readonly Dictionary<IVariable, Expression> SubstMap;
+    public readonly Dictionary<TypeParameter, PreType> PreTypeMap;
+
+    public DefaultValueExpressionPreType(IToken tok, Formal formal,
+      Expression/*?*/ receiver, Dictionary<IVariable, Expression> substMap, Dictionary<TypeParameter, PreType> preTypeMap)
+      : base(tok) {
+      Contract.Requires(tok != null);
+      Contract.Requires(formal != null);
+      Contract.Requires(formal.DefaultValue != null);
+      Contract.Requires(substMap != null);
+      Contract.Requires(preTypeMap != null);
+      Formal = formal;
+      Receiver = receiver;
+      SubstMap = substMap;
+      PreTypeMap = preTypeMap;
+      PreType = formal.PreType.Substitute(preTypeMap);
     }
   }
 

@@ -225,6 +225,11 @@ namespace Microsoft.Dafny {
       return decl is ClassDecl && !(decl is ArrowTypeDecl);
     }
 
+    public static bool IsArrowType(TopLevelDecl decl) {
+      Contract.Requires(decl != null);
+      return decl.Name.StartsWith("~>");
+    }
+
     public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {
       if (Decl is TypeParameter typeParameter) {
         Contract.Assert(Arguments.Count == 0);
