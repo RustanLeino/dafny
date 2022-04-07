@@ -37,14 +37,13 @@ namespace Microsoft.Dafny {
         e.ResolvedExpression = e.E;
         e.PreType = e.E.PreType;
 
-#if SOON
       } else if (expr is NegationExpression) {
         var e = (NegationExpression)expr;
         ResolveExpression(e.E, opts);
-        e.Type = e.E.Type;
-        AddXConstraint(e.E.tok, "NumericOrBitvector", e.E.Type, "type of unary - must be of a numeric or bitvector type (instead got {0})");
-        // Note, e.ResolvedExpression will be filled in during CheckTypeInference, at which time e.Type has been determined
-#endif
+        e.PreType = e.E.PreType;
+        AddConfirmation("NumericOrBitvector", e.E.PreType, e.E.tok, "type of unary - must be of a numeric or bitvector type (instead got {0})");
+        // Note, e.ResolvedExpression will be filled in during CheckTypeInference, at which time e.PreType has been determined
+
       } else if (expr is LiteralExpr) {
         var e = (LiteralExpr)expr;
 
@@ -424,47 +423,47 @@ namespace Microsoft.Dafny {
           case BinaryExpr.Opcode.Exp:
           case BinaryExpr.Opcode.And:
           case BinaryExpr.Opcode.Or: {
-            SetPreTypeBoolFamilyOperator(expr, opString);
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             ConstrainOperandTypes(e, opString);
             break;
           }
 
           case BinaryExpr.Opcode.Eq:
           case BinaryExpr.Opcode.Neq:
-            SetPreTypeBoolFamilyOperator(expr, opString);
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             AddComparableConstraint(e.E0.PreType, e.E1.PreType, expr.tok, "arguments must have comparable types (got {0} and {1})");
             break;
 
           case BinaryExpr.Opcode.Disjoint:
-            SetPreTypeBoolFamilyOperator(expr, opString);
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             ConstrainToCommonSupertype(e, opString);
             AddConfirmation("Disjointable", e.E0.PreType, expr.tok, "arguments must be of a set or multiset type (got {0})");
             break;
 
           case BinaryExpr.Opcode.Lt:
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             // In the next line, "opString" is, perversely, used as the format string
-            AddGuardedConstraint("Lt", expr.tok, opString, e.E0.PreType, e.E1.PreType, e.PreType);
-            SetPreTypeBoolFamilyOperator(expr, opString);
+            AddGuardedConstraint("Lt", expr.tok, opString, e.E0.PreType, e.E1.PreType);
             break;
 
           case BinaryExpr.Opcode.Le:
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             ConstrainToCommonSupertype(e, opString);
             AddConfirmation("Orderable_Lt", e.E0.PreType, expr.tok,
               "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, a sequence type, or a set-like type (instead got {0})");
-            SetPreTypeBoolFamilyOperator(expr, opString);
             break;
 
           case BinaryExpr.Opcode.Gt:
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             // In the next line, "opString" is, perversely, used as the format string
-            AddGuardedConstraint("Gt", expr.tok, opString, e.E0.PreType, e.E1.PreType, e.PreType);
-            SetPreTypeBoolFamilyOperator(expr, opString);
+            AddGuardedConstraint("Gt", expr.tok, opString, e.E0.PreType, e.E1.PreType);
             break;
 
           case BinaryExpr.Opcode.Ge:
+            ConstrainResultToBoolFamilyOperator(expr, opString);
             ConstrainToCommonSupertype(e, opString);
             AddConfirmation("Orderable_Gt", e.E0.PreType, expr.tok,
               "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, or a set-like type (instead got {0} and {1})");
-            SetPreTypeBoolFamilyOperator(expr, opString);
             break;
 
           case BinaryExpr.Opcode.Add:
@@ -490,7 +489,7 @@ namespace Microsoft.Dafny {
 
           case BinaryExpr.Opcode.In:
           case BinaryExpr.Opcode.NotIn:
-            SetPreTypeBoolFamilyOperator(expr, "'" + opString + "'");
+            ConstrainResultToBoolFamilyOperator(expr, "'" + opString + "'");
             AddGuardedConstraint("Innable", expr.tok,
               "second argument to '" + opString + "' must be a set, multiset, or sequence with elements of type {0}, or a map with domain {0} (instead got {1})",
               e.E0.PreType, e.E1.PreType);
@@ -748,12 +747,12 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private void SetPreTypeBoolFamilyOperator(Expression expr, string opString) {
+    private void ConstrainResultToBoolFamilyOperator(Expression expr, string opString) {
       var proxyDescription = $"result of {opString} operation";
-      SetPreTypeBoolFamily(expr, proxyDescription, "type of " + opString + " must be a boolean (got {0})");
+      ConstrainResultToBoolFamily(expr, proxyDescription, "type of " + opString + " must be a boolean (got {0})");
     }
 
-    private void SetPreTypeBoolFamily(Expression expr, string proxyDescription, string errorFormat) {
+    private void ConstrainResultToBoolFamily(Expression expr, string proxyDescription, string errorFormat) {
       expr.PreType = CreatePreTypeProxy(proxyDescription);
       AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
       AddConfirmation("InBoolFamily", expr.PreType, expr.tok, errorFormat);

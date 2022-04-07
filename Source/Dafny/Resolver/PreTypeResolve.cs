@@ -137,7 +137,7 @@ namespace Microsoft.Dafny {
     /// </summary>
     public TopLevelDecl AncestorDecl(TopLevelDecl decl) {
       while (decl is NewtypeDecl newtypeDecl) {
-        var parent = Type2PreType(newtypeDecl.BaseType);
+        var parent = newtypeDecl.BasePreType.Normalize();
         decl = ((DPreType)parent).Decl;
       }
       return decl;
@@ -267,8 +267,14 @@ namespace Microsoft.Dafny {
           var dd = (NewtypeDecl)d;
           if (dd.Var == null) {
             Contract.Assert(dd.Constraint == null); // follows from NewtypeDecl invariant
+            Contract.Assert(dd.BaseType != null); // this should have been set by the parser
+            Contract.Assert(dd.BasePreType == null); // this is about to be set here
+            dd.BasePreType = Type2PreType(dd.BaseType);
           } else {
             Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.BaseType)); // follows from NewtypeDecl invariant
+            Contract.Assert(dd.Var.PreType == null); // this is about to be set here
+            dd.Var.PreType = Type2PreType(dd.Var.Type);
+            dd.BasePreType = dd.Var.PreType;
             Contract.Assert(dd.Constraint != null); // follows from NewtypeDecl invariant
             ResolveConstraintAndWitness(dd);
           }

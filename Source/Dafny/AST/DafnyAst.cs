@@ -5575,6 +5575,7 @@ namespace Microsoft.Dafny {
     public override string WhatKind { get { return "newtype"; } }
     public override bool CanBeRevealed() { return true; }
     public readonly Type BaseType;
+    public PreType BasePreType;
     public readonly BoundVar Var;  // can be null (if non-null, then object.ReferenceEquals(Var.Type, BaseType))
     public readonly Expression Constraint;  // is null iff Var is
     public readonly SubsetTypeDecl.WKind WitnessKind = SubsetTypeDecl.WKind.CompiledZero;

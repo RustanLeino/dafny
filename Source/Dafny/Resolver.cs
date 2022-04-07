@@ -6954,7 +6954,7 @@ namespace Microsoft.Dafny {
             var e = (NegationExpression)expr;
             Expression resolved = null;
             if (e.E is LiteralExpr lit) { // note, not e.E.Resolved, since we don't want to do this for double negations
-              // For real-based types, integer-based types, and bi (but not bitvectors), "-" followed by a literal is just a literal expression with a negative value
+              // For real-based types and integer-based types (but not bitvectors), "-" followed by a literal is just a literal expression with a negative value
               if (e.E.Type.IsNumericBased(Type.NumericPersuasion.Real)) {
                 var d = (BaseTypes.BigDec)lit.Value;
                 Contract.Assert(!d.IsNegative);
@@ -6978,6 +6978,7 @@ namespace Microsoft.Dafny {
               resolved = new BinaryExpr(e.tok, BinaryExpr.Opcode.Sub, zero, e.E) { ResolvedOp = BinaryExpr.ResolvedOpcode.Sub };
             }
             resolved.Type = expr.Type;
+            resolved.PreType = expr.PreType;
             e.ResolvedExpression = resolved;
           }
         }

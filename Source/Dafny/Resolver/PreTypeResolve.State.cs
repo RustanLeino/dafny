@@ -8,7 +8,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
 using System.Diagnostics.Contracts;
 using Microsoft.Boogie;
 
@@ -708,15 +707,18 @@ namespace Microsoft.Dafny {
             if (left != null && (left.Decl is IndDatatypeDecl || left.Decl is TypeParameter)) {
               AddConfirmation("RankOrderable", a1, constraint.tok,
                 $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
+              used = true;
             } else if (right != null && right.Decl is IndDatatypeDecl) {
               AddConfirmation("RankOrderableOrTypeParameter", a0, constraint.tok,
                 $"arguments to rank comparison must be datatypes (got {{0}} and {a1})");
+              used = true;
             } else if (left != null || right != null) {
-              var resultPreType = constraint.Arguments[2];
               var opString = constraint.ErrorFormatString;
-              ConstrainToCommonSupertype(resultPreType, a0, a1, constraint.tok, opString);
+              var commonSupertype = CreatePreTypeProxy("common supertype of < operands");
+              ConstrainToCommonSupertype(commonSupertype, a0, a1, constraint.tok, opString);
               AddConfirmation("Orderable_Lt", a0, constraint.tok,
                 "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, a sequence type, or a set-like type (instead got {0})");
+              used = true;
             }
             break;
           }
@@ -726,15 +728,18 @@ namespace Microsoft.Dafny {
             if (left != null && left.Decl is IndDatatypeDecl) {
               AddConfirmation("RankOrderableOrTypeParameter", a1, constraint.tok,
                 $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
+              used = true;
             } else if (right != null && (right.Decl is IndDatatypeDecl || right.Decl is TypeParameter)) {
               AddConfirmation("RankOrderable", a0, constraint.tok,
                 $"arguments to rank comparison must be datatypes (got {{0}} and {a1})");
+              used = true;
             } else if (left != null || right != null) {
-              var resultPreType = constraint.Arguments[2];
               var opString = constraint.ErrorFormatString;
-              ConstrainToCommonSupertype(resultPreType, a0, a1, constraint.tok, opString);
+              var commonSupertype = CreatePreTypeProxy("common supertype of < operands");
+              ConstrainToCommonSupertype(commonSupertype, a0, a1, constraint.tok, opString);
               AddConfirmation("Orderable_Gt", a0, constraint.tok,
                 "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, or a set-like type (instead got {0})");
+              used = true;
             }
             break;
           }
