@@ -99,21 +99,21 @@ namespace Microsoft.Dafny {
         } else {
           ReportError(expr, "Identifier does not denote a local variable, parameter, or bound variable: {0}", e.Name);
         }
-#if SOON
+
       } else if (expr is DatatypeValue) {
-        DatatypeValue dtv = (DatatypeValue)expr;
-        TopLevelDecl d;
-        if (!moduleInfo.TopLevels.TryGetValue(dtv.DatatypeName, out d)) {
+        var dtv = (DatatypeValue)expr;
+        if (!resolver.moduleInfo.TopLevels.TryGetValue(dtv.DatatypeName, out var decl)) {
           ReportError(expr.tok, "Undeclared datatype: {0}", dtv.DatatypeName);
-        } else if (d is AmbiguousTopLevelDecl) {
-          var ad = (AmbiguousTopLevelDecl)d;
-          ReportError(expr.tok, "The name {0} ambiguously refers to a type in one of the modules {1} (try qualifying the type name with the module name)", dtv.DatatypeName, ad.ModuleNames());
-        } else if (!(d is DatatypeDecl)) {
-          ReportError(expr.tok, "Expected datatype: {0}", dtv.DatatypeName);
+        } else if (decl is Resolver.AmbiguousTopLevelDecl) {
+          var ad = (Resolver.AmbiguousTopLevelDecl)decl;
+          ReportError(expr.tok,
+            "The name {0} ambiguously refers to a type in one of the modules {1} (try qualifying the type name with the module name)",
+            dtv.DatatypeName, ad.ModuleNames());
+        } else if (decl is DatatypeDecl dtd) {
+          ResolveDatatypeValue(opts, dtv, dtd, null);
         } else {
-          ResolveDatatypeValue(opts, dtv, (DatatypeDecl)d, null);
+          ReportError(expr.tok, "Expected datatype: {0}", dtv.DatatypeName);
         }
-#endif
 
       } else if (expr is DisplayExpression) {
         var e = (DisplayExpression)expr;
@@ -964,13 +964,13 @@ namespace Microsoft.Dafny {
           receiver.PreType = Type2PreType(receiver.Type);
         }
         r = ResolveExprDotCall(expr.tok, receiver, null, member, args, expr.OptTypeArguments, opts, allowMethodCall);
-#if SOON
+
       } else if (isLastNameSegment && resolver.moduleInfo.Ctors.TryGetValue(name, out pair)) {
         // ----- 2. datatype constructor
         if (ResolveDatatypeConstructor(expr, args, opts, complain, pair, name, ref r, ref rWithArgs)) {
           return null;
         }
-#endif
+
       } else if (resolver.moduleInfo.TopLevels.TryGetValue(name, out var decl)) {
         // ----- 3. Member of the enclosing module
         if (decl is Resolver.AmbiguousTopLevelDecl ambiguousTopLevelDecl) {
@@ -1047,6 +1047,57 @@ namespace Microsoft.Dafny {
         expr.PreType = r.PreType;
       }
       return rWithArgs;
+    }
+
+    private bool ResolveDatatypeConstructor(NameSegment expr, List<ActualBinding>/*?*/ args, Resolver.ResolveOpts opts, bool complain,
+      Tuple<DatatypeCtor, bool> pair, string name, ref Expression r, ref Expression rWithArgs) {
+      Contract.Requires(expr != null);
+      Contract.Requires(opts != null);
+
+      var datatypeDecl = pair.Item1.EnclosingDatatype;
+      if (pair.Item2) {
+        // there is more than one constructor with this name
+        if (complain) {
+          ReportError(expr.tok,
+            "the name '{0}' denotes a datatype constructor, but does not do so uniquely; add an explicit qualification (for example, '{1}.{0}')",
+            expr.Name, datatypeDecl.Name);
+          return false;
+        } else {
+          expr.ResolvedExpression = null;
+          return true;
+        }
+      }
+
+      if (expr.OptTypeArguments != null) {
+        if (complain) {
+          var errorMsg = $"datatype constructor does not take any type parameters ('{name}')";
+          if (datatypeDecl.TypeArgs.Count != 0) {
+            // Perhaps the user intended to put the type arguments on the constructor, but didn't know the right syntax.
+            // Let's give a hint (whether or not expr.OptTypeArguments.Count == datatypeDecl.TypeArgs.Count).
+            var givenTypeArguments = Util.Comma(expr.OptTypeArguments, targ => targ.ToString());
+            errorMsg = $"{errorMsg}; did you perhaps mean to write '{datatypeDecl.Name}<{givenTypeArguments}>.{name}'?";
+          }
+          ReportError(expr.tok, errorMsg);
+          return false;
+        } else {
+          expr.ResolvedExpression = null;
+          return true;
+        }
+      }
+
+      var rr = new DatatypeValue(expr.tok, datatypeDecl.Name, name, args ?? new List<ActualBinding>());
+      var ok = ResolveDatatypeValue(opts, rr, datatypeDecl, null, complain);
+      if (!ok) {
+        expr.ResolvedExpression = null;
+        return true;
+      }
+      if (args == null) {
+        r = rr;
+      } else {
+        r = rr; // this doesn't really matter, since we're returning an "rWithArgs" (but if would have been proper to have returned the ctor as a lambda)
+        rWithArgs = rr;
+      }
+      return false;
     }
 
     /// <summary>
@@ -1560,6 +1611,55 @@ namespace Microsoft.Dafny {
           pat.AssembleExprPreType(sourceTypeArguments);
         }
       }
+    }
+
+    /// <summary>
+    /// The return value is false iff there is an error in resolving the datatype value.
+    /// If there is an error, then an error message is emitted iff complain is true.
+    /// </summary>
+    private bool ResolveDatatypeValue(Resolver.ResolveOpts opts, DatatypeValue dtv, DatatypeDecl datatypeDecl, DPreType ty, bool complain = true) {
+      Contract.Requires(opts != null);
+      Contract.Requires(dtv != null);
+      Contract.Requires(datatypeDecl != null);
+      Contract.Requires(ty == null || (ty.Decl == datatypeDecl && ty.Arguments.Count == datatypeDecl.TypeArgs.Count));
+
+      var ok = true;
+      List<PreType> gt;
+      if (ty == null) {
+        gt = datatypeDecl.TypeArgs.ConvertAll(tp => CreatePreTypeProxy($"datatype type parameter '{tp.Name}'"));
+      } else {
+        gt = ty.Arguments;
+      }
+#if SOON
+      dtv.InferredTypeArgs.AddRange(gt);
+#endif
+      // Construct a resolved type directly, since we know the declaration is datatypeDecl.
+      dtv.PreType = new DPreType(datatypeDecl, gt);
+
+      if (!resolver.datatypeCtors[datatypeDecl].TryGetValue(dtv.MemberName, out var ctor)) {
+        ok = false;
+        if (complain) {
+          ReportError(dtv.tok, "undeclared constructor {0} in datatype {1}", dtv.MemberName, dtv.DatatypeName);
+        }
+      } else {
+        Contract.Assert(ctor != null); // follows from postcondition of TryGetValue
+        dtv.Ctor = ctor;
+      }
+      if (complain && ctor != null) {
+        var subst = PreType.PreTypeSubstMap(datatypeDecl.TypeArgs, gt);
+        ResolveActualParameters(dtv.Bindings, ctor.Formals, dtv.tok, ctor, opts, subst, null);
+      } else {
+        // still resolve the expressions
+        foreach (var binding in dtv.Bindings.ArgumentBindings) {
+          ResolveExpression(binding.Actual, opts);
+        }
+        dtv.Bindings.AcceptArgumentExpressionsAsExactParameterList();
+      }
+
+      if (CodeContextWrapper.Unwrap(opts.codeContext) is ICallable caller && caller.EnclosingModule == datatypeDecl.EnclosingModuleDefinition) {
+        caller.EnclosingModule.CallGraph.AddEdge(caller, datatypeDecl);
+      }
+      return ok && ctor.Formals.Count == dtv.Arguments.Count;
     }
 
   }
