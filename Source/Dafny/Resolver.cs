@@ -366,7 +366,9 @@ namespace Microsoft.Dafny {
       // Check that none of the modules have the same CompileName.
       Dictionary<string, ModuleDefinition> compileNameMap = new Dictionary<string, ModuleDefinition>();
       foreach (ModuleDefinition m in prog.CompileModules) {
-        if (m.IsAbstract) {
+        var compileIt = true;
+        Attributes.ContainsBool(m.Attributes, "compile", ref compileIt);
+        if (m.IsAbstract || !compileIt) {
           // the purpose of an abstract module is to skip compilation
           continue;
         }
@@ -557,7 +559,7 @@ namespace Microsoft.Dafny {
           ModuleSignature p;
           if (ResolveExport(abs, abs.EnclosingModuleDefinition, abs.QId, abs.Exports, out p, reporter)) {
             abs.OriginalSignature = p;
-            abs.Signature = MakeAbstractSignature(p, abs.FullCompileName, abs.Height, prog.ModuleSigs, compilationModuleClones);
+            abs.Signature = MakeAbstractSignature(p, abs.FullSanitizedName, abs.Height, prog.ModuleSigs, compilationModuleClones);
           } else {
             abs.Signature = new ModuleSignature(); // there was an error, give it a valid but empty signature
           }
@@ -3346,8 +3348,7 @@ namespace Microsoft.Dafny {
             prefixLemma.Ens.Add(new AttributedExpression(post));
             foreach (var e in coConclusions) {
               var fce = e as FunctionCallExpr;
-              if (fce != null) {
-                // the other possibility is that "e" is a BinaryExpr
+              if (fce != null) { // the other possibility is that "e" is a BinaryExpr
                 GreatestPredicate predicate = (GreatestPredicate)fce.Function;
                 focalPredicates.Add(predicate);
                 // For every focal predicate P in S, add to S all co-predicates in the same strongly connected
@@ -3384,8 +3385,7 @@ namespace Microsoft.Dafny {
           }
         }
         reporter.Info(MessageSource.Resolver, com.tok,
-          string.Format("{0} with focal predicate{2} {1}", com.PrefixLemma.Name, Util.Comma(focalPredicates, p => p.Name),
-            Util.Plural(focalPredicates.Count)));
+          string.Format("{0} with focal predicate{2} {1}", com.PrefixLemma.Name, Util.Comma(focalPredicates, p => p.Name), Util.Plural(focalPredicates.Count)));
         // Compute the statement body of the prefix lemma
         Contract.Assume(prefixLemma.Body == null); // this is not supposed to have been filled in before
         if (com.Body != null) {
@@ -3397,7 +3397,7 @@ namespace Microsoft.Dafny {
           if (k.Type.IsBigOrdinalType) {
             kk = new MemberSelectExpr(k.tok, new IdentifierExpr(k.tok, k.Name), "Offset");
             // As an "else" branch, we add recursive calls for the limit case.  When automatic induction is on,
-            // this get handled automatically, but we still want it in the case when automatic inductino has been
+            // this get handled automatically, but we still want it in the case when automatic induction has been
             // turned off.
             //     forall k', params | k' < _k && Precondition {
             //       pp(k', params);
@@ -3423,23 +3423,20 @@ namespace Microsoft.Dafny {
 
             Expression recursiveCallReceiver;
             List<Expression> recursiveCallArgs;
-            Translator.RecursiveCallParameters(com.tok, prefixLemma, prefixLemma.TypeArgs, prefixLemma.Ins, substMap, out recursiveCallReceiver,
-              out recursiveCallArgs);
+            Translator.RecursiveCallParameters(com.tok, prefixLemma, prefixLemma.TypeArgs, prefixLemma.Ins, null, substMap, out recursiveCallReceiver, out recursiveCallArgs);
             var methodSel = new MemberSelectExpr(com.tok, recursiveCallReceiver, prefixLemma.Name);
             methodSel.Member = prefixLemma; // resolve here
-            methodSel.TypeApplication_AtEnclosingClass =
-              prefixLemma.EnclosingClass.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
+            methodSel.TypeApplication_AtEnclosingClass = prefixLemma.EnclosingClass.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
             methodSel.TypeApplication_JustMember = prefixLemma.TypeArgs.ConvertAll(tp => (Type)new UserDefinedType(tp.tok, tp));
             methodSel.Type = new InferredTypeProxy();
-            var recursiveCall = new CallStmt(com.tok, com.tok, new List<Expression>(), methodSel,
-              recursiveCallArgs.ConvertAll(e => new ActualBinding(null, e)));
+            var recursiveCall = new CallStmt(com.tok, com.tok, new List<Expression>(), methodSel, recursiveCallArgs.ConvertAll(e => new ActualBinding(null, e)));
             recursiveCall.IsGhost = prefixLemma.IsGhost; // resolve here
 
             var range = smaller; // The range will be strengthened later with the call's precondition, substituted
-            // appropriately (which can only be done once the precondition has been resolved).
+                                 // appropriately (which can only be done once the precondition has been resolved).
             var attrs = new Attributes("_autorequires", new List<Expression>(), null);
 #if VERIFY_CORRECTNESS_OF_TRANSLATION_FORALL_STATEMENT_RANGE
-              // don't add the :_trustWellformed attribute
+            // don't add the :_trustWellformed attribute
 #else
             attrs = new Attributes("_trustWellformed", new List<Expression>(), attrs);
 #endif
@@ -12942,8 +12939,8 @@ namespace Microsoft.Dafny {
       if (enclosingMethod is IteratorDecl) {
         var iter = (IteratorDecl)enclosingMethod;
         var ie = new IdentifierExpr(loopStmt.Tok, iter.YieldCountVariable.Name);
-        ie.Var = iter.YieldCountVariable;  // resolve here
-        ie.Type = iter.YieldCountVariable.Type;  // resolve here
+        ie.Var = iter.YieldCountVariable; // resolve here
+        ie.Type = iter.YieldCountVariable.Type; // resolve here
         theDecreases.Insert(0, AutoGeneratedExpression.Create(ie));
         loopStmt.InferredDecreases = true;
       }
@@ -15648,16 +15645,23 @@ namespace Microsoft.Dafny {
       candidateResultCtors.Reverse();
       foreach (var crc in candidateResultCtors) {
         // Build the arguments to the datatype constructor, using the updated value in the appropriate slot
-        var ctor_args = new List<Expression>();
+        var ctorArguments = new List<Expression>();
+        var actualBindings = new List<ActualBinding>();
         foreach (var f in crc.Formals) {
-          Tuple<BoundVar/*let variable*/, IdentifierExpr/*id expr for let variable*/, Expression /*RHS in given syntax*/> info;
-          if (rhsBindings.TryGetValue(f.Name, out info)) {
-            ctor_args.Add(info.Item2 ?? info.Item3);
+          Expression ctorArg;
+          if (rhsBindings.TryGetValue(f.Name, out var info)) {
+            ctorArg = info.Item2 ?? info.Item3;
           } else {
-            ctor_args.Add(new ExprDotName(tok, d, f.Name, null));
+            ctorArg = new ExprDotName(tok, d, f.Name, null);
           }
+          ctorArguments.Add(ctorArg);
+          var bindingName = new Token(tok.line, tok.col) {
+            filename = tok.filename,
+            val = f.Name
+          };
+          actualBindings.Add(new ActualBinding(bindingName, ctorArg));
         }
-        var ctor_call = new DatatypeValue(tok, crc.EnclosingDatatype.Name, crc.Name, ctor_args.ConvertAll(e => new ActualBinding(null, e)));
+        var ctor_call = new DatatypeValue(tok, crc.EnclosingDatatype.Name, crc.Name, actualBindings);
         ResolveDatatypeValue(opts, ctor_call, dt, root.Type.NormalizeExpand());  // resolve to root.Type, so that type parameters get filled in appropriately
         if (body == null) {
           body = ctor_call;
@@ -17783,6 +17787,26 @@ namespace Microsoft.Dafny {
           case BinaryExpr.ResolvedOpcode.NeqCommon:  // A != B         yield polarity ? (A != B) : (A == B);
             newOp = polarity ? BinaryExpr.Opcode.Neq : BinaryExpr.Opcode.Eq;
             newROp = polarity ? BinaryExpr.ResolvedOpcode.NeqCommon : BinaryExpr.ResolvedOpcode.EqCommon;
+            swapOperands = false;
+            break;
+          case BinaryExpr.ResolvedOpcode.NotInSet:  // A !in B         yield polarity ? (A !in B) : (A in B);
+            newOp = polarity ? BinaryExpr.Opcode.NotIn : BinaryExpr.Opcode.In;
+            newROp = polarity ? BinaryExpr.ResolvedOpcode.NotInSet : BinaryExpr.ResolvedOpcode.InSet;
+            swapOperands = false;
+            break;
+          case BinaryExpr.ResolvedOpcode.NotInSeq:  // A !in B         yield polarity ? (A !in B) : (A in B);
+            newOp = polarity ? BinaryExpr.Opcode.NotIn : BinaryExpr.Opcode.In;
+            newROp = polarity ? BinaryExpr.ResolvedOpcode.NotInSeq : BinaryExpr.ResolvedOpcode.InSeq;
+            swapOperands = false;
+            break;
+          case BinaryExpr.ResolvedOpcode.NotInMultiSet:  // A !in B         yield polarity ? (A !in B) : (A in B);
+            newOp = polarity ? BinaryExpr.Opcode.NotIn : BinaryExpr.Opcode.In;
+            newROp = polarity ? BinaryExpr.ResolvedOpcode.NotInMultiSet : BinaryExpr.ResolvedOpcode.InMultiSet;
+            swapOperands = false;
+            break;
+          case BinaryExpr.ResolvedOpcode.NotInMap:  // A !in B         yield polarity ? (A !in B) : (A in B);
+            newOp = polarity ? BinaryExpr.Opcode.NotIn : BinaryExpr.Opcode.In;
+            newROp = polarity ? BinaryExpr.ResolvedOpcode.NotInMap : BinaryExpr.ResolvedOpcode.InMap;
             swapOperands = false;
             break;
           default:
