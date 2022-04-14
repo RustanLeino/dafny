@@ -220,7 +220,7 @@ namespace Microsoft.Dafny {
     public readonly Dictionary<TopLevelDeclWithMembers, Dictionary<string, MemberDecl>> classMembers =
       new Dictionary<TopLevelDeclWithMembers, Dictionary<string, MemberDecl>>();
 
-    readonly Dictionary<DatatypeDecl, Dictionary<string, DatatypeCtor>> datatypeCtors =
+    public readonly Dictionary<DatatypeDecl, Dictionary<string, DatatypeCtor>> datatypeCtors =
       new Dictionary<DatatypeDecl, Dictionary<string, DatatypeCtor>>();
 
     enum ValuetypeVariety {

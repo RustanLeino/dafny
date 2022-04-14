@@ -554,7 +554,6 @@ namespace Microsoft.Dafny {
             break;
         }
 
-#if SOON
       } else if (expr is LetExpr) {
         var e = (LetExpr)expr;
         if (e.Exact) {
@@ -567,8 +566,8 @@ namespace Microsoft.Dafny {
           }
           var i = 0;
           foreach (var lhs in e.LHSs) {
-            var rhsType = i < e.RHSs.Count ? e.RHSs[i].Type : new InferredTypeProxy();
-            ResolveCasePattern(lhs, rhsType, opts.codeContext);
+            var rhsPreType = i < e.RHSs.Count ? e.RHSs[i].PreType : CreatePreTypeProxy("let RHS");
+            ResolveCasePattern(lhs, rhsPreType, opts.codeContext);
             // Check for duplicate names now, because not until after resolving the case pattern do we know if identifiers inside it refer to bound variables or nullary constructors
             var c = 0;
             foreach (var v in lhs.Vars) {
@@ -592,18 +591,22 @@ namespace Microsoft.Dafny {
             Contract.Assert(lhs.Var != null);  // the parser already checked that every LHS is a BoundVar, not a general pattern
             var v = lhs.Var;
             ScopePushAndReport(scope, v, "let-variable");
-            ResolveType(v.tok, v.Type, opts.codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
-            AddTypeDependencyEdges(opts.codeContext, v.Type);
+            resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+#if SOON
+            resolver.AddTypeDependencyEdges(opts.codeContext, v.Type);
+#endif
           }
           foreach (var rhs in e.RHSs) {
             ResolveExpression(rhs, opts);
-            ConstrainTypeExprBool(rhs, "type of RHS of let-such-that expression must be boolean (got {0})");
+            ConstrainResultToBoolFamily(rhs, "such-that constraint", "type of RHS of let-such-that expression must be boolean (got {0})");
           }
         }
         ResolveExpression(e.Body, opts);
-        ResolveAttributes(e.Attributes, e, opts);
+        ResolveAttributes(e, opts, false);
         scope.PopMarker();
-        expr.Type = e.Body.Type;
+        expr.PreType = e.Body.PreType;
+
+#if SOON
       } else if (expr is LetOrFailExpr) {
         var e = (LetOrFailExpr)expr;
         ResolveLetOrFailExpr(e, opts);
@@ -703,34 +706,38 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.Term, opts);
         scope.PopMarker();
         expr.Type = SelectAppropriateArrowType(e.tok, e.BoundVars.ConvertAll(v => v.Type), e.Body.Type, e.Reads.Count != 0, e.Range != null);
+#endif
+
       } else if (expr is WildcardExpr) {
-        expr.Type = new SetType(true, builtIns.ObjectQ());
+        var obj = new DPreType(BuiltInTypeDecl("object?"), new List<PreType>() {});
+        expr.PreType = new DPreType(BuiltInTypeDecl("set"), new List<PreType>() { obj });
+
       } else if (expr is StmtExpr) {
         var e = (StmtExpr)expr;
-        int prevErrorCount = reporter.Count(ErrorLevel.Error);
+        int prevErrorCount = ErrorCount;
         ResolveStatement(e.S, opts.codeContext);
-        if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-          var r = e.S as UpdateStmt;
-          if (r != null && r.ResolvedStatements.Count == 1) {
-            var call = r.ResolvedStatements[0] as CallStmt;
+        if (ErrorCount == prevErrorCount) {
+          if (e.S is UpdateStmt updateStmt && updateStmt.ResolvedStatements.Count == 1) {
+            var call = (CallStmt)updateStmt.ResolvedStatements[0];
             if (call.Method is TwoStateLemma && !opts.twoState) {
               ReportError(call, "two-state lemmas can only be used in two-state contexts");
             }
           }
         }
         ResolveExpression(e.E, opts);
-        expr.Type = e.E.Type;
+        expr.PreType = e.E.PreType;
 
       } else if (expr is ITEExpr) {
-        ITEExpr e = (ITEExpr)expr;
+        var e = (ITEExpr)expr;
         ResolveExpression(e.Test, opts);
         ResolveExpression(e.Thn, opts);
         ResolveExpression(e.Els, opts);
-        ConstrainTypeExprBool(e.Test, "guard condition in if-then-else expression must be a boolean (instead got {0})");
-        expr.Type = new InferredTypeProxy();
-        ConstrainSubtypeRelation(expr.Type, e.Thn.Type, expr, "the two branches of an if-then-else expression must have the same type (got {0} and {1})", e.Thn.Type, e.Els.Type);
-        ConstrainSubtypeRelation(expr.Type, e.Els.Type, expr, "the two branches of an if-then-else expression must have the same type (got {0} and {1})", e.Thn.Type, e.Els.Type);
+        ConstrainResultToBoolFamily(e.Test, "if-then-else test", "guard condition in if-then-else expression must be a boolean (instead got {0})");
+        expr.PreType = CreatePreTypeProxy("if-then-else branches");
+        AddSubtypeConstraint(expr.PreType, e.Thn.PreType, expr.tok, "the two branches of an if-then-else expression must have the same type (got {0} and {1})");
+        AddSubtypeConstraint(expr.PreType, e.Els.PreType, expr.tok, "the two branches of an if-then-else expression must have the same type (got {0} and {1})");
 
+#if SOON
       } else if (expr is MatchExpr) {
         ResolveMatchExpr((MatchExpr)expr, opts);
       } else if (expr is NestedMatchExpr) {
@@ -1447,6 +1454,112 @@ namespace Microsoft.Dafny {
         e.PreType = r.PreType;
       }
       return null; // not a method call
+    }
+
+    void ResolveCasePattern<VT>(CasePattern<VT> pat, PreType sourcePreType, ICodeContext context) where VT : IVariable {
+      Contract.Requires(pat != null);
+      Contract.Requires(sourcePreType != null);
+      Contract.Requires(context != null);
+
+      var dtd = (sourcePreType.Normalize() as DPreType)?.Decl as DatatypeDecl;
+      List<PreType> sourceTypeArguments = null;
+      // Find the constructor in the given datatype
+      // If what was parsed was just an identifier, we will interpret it as a datatype constructor, if possible
+      if (dtd != null) {
+        sourceTypeArguments = ((DPreType)sourcePreType.Normalize()).Arguments;
+        if (pat.Var == null || (pat.Var != null && pat.Var.Type is TypeProxy)) {
+          if (resolver.datatypeCtors[dtd].TryGetValue(pat.Id, out var datatypeCtor)) {
+            if (pat.Arguments == null) {
+              if (datatypeCtor.Formals.Count != 0) {
+                // Leave this as a variable
+              } else {
+                // Convert to a constructor
+                pat.MakeAConstructor();
+                pat.Ctor = datatypeCtor;
+                pat.Var = default(VT);
+              }
+            } else {
+              pat.Ctor = datatypeCtor;
+              pat.Var = default(VT);
+            }
+          }
+        }
+      }
+
+      if (pat.Var != null) {
+        // this is a simple resolution
+        var v = pat.Var;
+        if (context.IsGhost) {
+          v.MakeGhost();
+        }
+        resolver.ResolveType(v.Tok, v.Type, context, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        v.PreType = Type2PreType(v.Type);
+#if SOON
+        AddTypeDependencyEdges(context, v.Type);
+#endif
+        // Note, the following type constraint checks that the RHS type can be assigned to the new variable on the left. In particular, it
+        // does not check that the entire RHS can be assigned to something of the type of the pattern on the left.  For example, consider
+        // a type declared as "datatype Atom<T> = MakeAtom(T)", where T is a non-variant type argument.  Suppose the RHS has type Atom<nat>
+        // and that the LHS is the pattern MakeAtom(x: int).  This is okay, despite the fact that Atom<nat> is not assignable to Atom<int>.
+        // The reason is that the purpose of the pattern on the left is really just to provide a skeleton to introduce bound variables in.
+#if SOON
+        EagerAddAssignableConstraint(v.Tok, v.Type, sourcePreType, "type of corresponding source/RHS ({1}) does not match type of bound variable ({0})");
+#else
+        AddAssignableConstraint(v.PreType, sourcePreType, v.Tok,
+          "type of corresponding source/RHS ({1}) does not match type of bound variable ({0})");
+#endif
+        pat.AssembleExprPreType(null);
+        return;
+      }
+
+      DatatypeCtor ctor = null;
+      if (dtd == null) {
+        // look up the name of the pattern's constructor
+        if (resolver.moduleInfo.Ctors.TryGetValue(pat.Id, out var pair) && !pair.Item2) {
+          ctor = pair.Item1;
+          pat.Ctor = ctor;
+          dtd = ctor.EnclosingDatatype;
+          sourceTypeArguments = dtd.TypeArgs.ConvertAll(tp => (PreType)CreatePreTypeProxy($"type parameter '{tp.Name}'"));
+          var lhsPreType = new DPreType(dtd, sourceTypeArguments);
+          AddAssignableConstraint(lhsPreType, sourcePreType, pat.tok, $"type of RHS ({{0}}) does not match type of bound variable '{pat.Id}' ({{1}})");
+        }
+      }
+      if (dtd == null) {
+        Contract.Assert(ctor == null);
+        ReportError(pat.tok, "to use a pattern, the type of the source/RHS expression must be a datatype (instead found {0})", sourcePreType);
+      } else if (ctor == null) {
+        ReportError(pat.tok, "constructor {0} does not exist in datatype {1}", pat.Id, dtd.Name);
+      } else {
+        if (pat.Arguments == null) {
+          if (ctor.Formals.Count == 0) {
+            // The Id matches a constructor of the correct type and 0 arguments,
+            // so make it a nullary constructor, not a variable
+            pat.MakeAConstructor();
+          }
+        } else {
+          if (ctor.Formals.Count != pat.Arguments.Count) {
+            ReportError(pat.tok, "pattern for constructor {0} has wrong number of formals (found {1}, expected {2})", pat.Id, pat.Arguments.Count, ctor.Formals.Count);
+          }
+        }
+        // build the type-parameter substitution map for this use of the datatype
+        Contract.Assert(dtd.TypeArgs.Count == sourceTypeArguments.Count);  // follows from the type previously having been successfully resolved
+        var subst = PreType.PreTypeSubstMap(dtd.TypeArgs, sourceTypeArguments);
+        // recursively call ResolveCasePattern on each of the arguments
+        var j = 0;
+        if (pat.Arguments != null) {
+          foreach (var arg in pat.Arguments) {
+            if (j < ctor.Formals.Count) {
+              var formal = ctor.Formals[j];
+              var st = formal.PreType.Substitute(subst);
+              ResolveCasePattern(arg, st, new CodeContextWrapper(context, context.IsGhost || formal.IsGhost));
+            }
+            j++;
+          }
+        }
+        if (j == ctor.Formals.Count) {
+          pat.AssembleExprPreType(sourceTypeArguments);
+        }
+      }
     }
 
   }

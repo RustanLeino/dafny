@@ -210,6 +210,10 @@ namespace Microsoft.Dafny {
         Contract.Requires(sub != null);
         Contract.Requires(tok != null);
         Contract.Requires(errorFormatString != null);
+#if DEBUG
+        Contract.Assert(super != null);
+        Contract.Assert(sub != null);
+#endif
         Super = super.Normalize();
         Sub = sub.Normalize();
       }
