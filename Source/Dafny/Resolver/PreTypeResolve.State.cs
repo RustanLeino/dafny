@@ -880,6 +880,9 @@ namespace Microsoft.Dafny {
             case "BooleanBits":
               okay = familyDeclName == "bool" || IsBitvectorName(familyDeclName);
               break;
+            case "IntOrORDINAL":
+              okay = familyDeclName == "int" || familyDeclName == "ORDINAL";
+              break;
             case "Plussable":
               switch (familyDeclName) {
                 case "int":

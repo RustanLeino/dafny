@@ -536,7 +536,6 @@ namespace Microsoft.Dafny {
         // We should also fill in e.ResolvedOp, but we may not have enough information for that yet.  So, instead, delay
         // setting e.ResolvedOp until inside CheckTypeInference.
 
-#if SOON
       } else if (expr is TernaryExpr) {
         var e = (TernaryExpr)expr;
         ResolveExpression(e.E0, opts);
@@ -545,16 +544,17 @@ namespace Microsoft.Dafny {
         switch (e.Op) {
           case TernaryExpr.Opcode.PrefixEqOp:
           case TernaryExpr.Opcode.PrefixNeqOp:
-            AddXConstraint(expr.tok, "IntOrORDINAL", e.E0.Type, "prefix-equality limit argument must be an ORDINAL or integer expression (got {0})");
-            AddXConstraint(expr.tok, "Equatable", e.E1.Type, e.E2.Type, "arguments must have the same type (got {0} and {1})");
-            AddXConstraint(expr.tok, "IsCoDatatype", e.E1.Type, "arguments to prefix equality must be codatatypes (instead of {0})");
-            expr.Type = Type.Bool;
+            ConstrainResultToBoolFamily(expr, "ternary op", "boolean literal used as if it had type {0}");
+            AddConfirmation("IntOrORDINAL", e.E0.PreType, expr.tok, "prefix-equality limit argument must be an ORDINAL or integer expression (got {0})");
+            AddComparableConstraint(e.E1.PreType, e.E2.PreType, expr.tok, "arguments must have the same type (got {0} and {1})");
+            AddConfirmation("IsCoDatatype", e.E1.PreType, expr.tok, "arguments to prefix equality must be codatatypes (instead of {0})");
             break;
           default:
             Contract.Assert(false);  // unexpected ternary operator
             break;
         }
 
+#if SOON
       } else if (expr is LetExpr) {
         var e = (LetExpr)expr;
         if (e.Exact) {
