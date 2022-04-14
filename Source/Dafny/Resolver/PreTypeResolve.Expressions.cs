@@ -349,22 +349,25 @@ namespace Microsoft.Dafny {
         // the type of e.E must be either an object or a set/seq of objects
         AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of a fresh expression must denote an object or a set or sequence of objects (instead got {0})");
         expr.Type = Type.Bool;
+#endif
 
       } else if (expr is UnaryOpExpr) {
         var e = (UnaryOpExpr)expr;
         ResolveExpression(e.E, opts);
         switch (e.Op) {
           case UnaryOpExpr.Opcode.Not:
-            AddXConstraint(e.E.tok, "BooleanBits", e.E.Type, "logical/bitwise negation expects a boolean or bitvector argument (instead got {0})");
-            expr.Type = e.E.Type;
+            AddConfirmation("BooleanBits", e.E.PreType, expr.tok, "logical/bitwise negation expects a boolean or bitvector argument (instead got {0})");
+            expr.PreType = e.E.PreType;
             break;
           case UnaryOpExpr.Opcode.Cardinality:
-            AddXConstraint(expr.tok, "Sizeable", e.E.Type, "size operator expects a collection argument (instead got {0})");
-            expr.Type = Type.Int;
+            AddConfirmation("Sizeable", e.E.PreType, expr.tok, "size operator expects a collection argument (instead got {0})");
+            expr.PreType = CreatePreTypeProxy("cardinality");
+            AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
+            AddConfirmation("InIntFamily", expr.PreType, expr.tok, "integer literal used as if it had type {0}");
             break;
           case UnaryOpExpr.Opcode.Allocated:
             // the argument is allowed to have any type at all
-            expr.Type = Type.Bool;
+            ConstrainResultToBoolFamily(expr, "allocated", "boolean literal used as if it had type {0}");
             if (2 <= DafnyOptions.O.Allocated &&
               ((opts.codeContext is Function && !opts.InsideOld) || opts.codeContext is ConstantField || CodeContextWrapper.Unwrap(opts.codeContext) is RedirectingTypeDecl)) {
               var declKind = CodeContextWrapper.Unwrap(opts.codeContext) is RedirectingTypeDecl redir ? redir.WhatKind : ((MemberDecl)opts.codeContext).WhatKind;
@@ -375,6 +378,7 @@ namespace Microsoft.Dafny {
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected unary operator
         }
 
+#if SOON
       } else if (expr is ConversionExpr) {
         var e = (ConversionExpr)expr;
         ResolveExpression(e.E, opts);
@@ -412,7 +416,7 @@ namespace Microsoft.Dafny {
 
       } else if (expr is BinaryExpr) {
 
-        BinaryExpr e = (BinaryExpr)expr;
+        var e = (BinaryExpr)expr;
         ResolveExpression(e.E0, opts);
         ResolveExpression(e.E1, opts);
 

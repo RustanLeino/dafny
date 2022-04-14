@@ -877,6 +877,9 @@ namespace Microsoft.Dafny {
             case "NumericOrBitvector":
               okay = familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName);
               break;
+            case "BooleanBits":
+              okay = familyDeclName == "bool" || IsBitvectorName(familyDeclName);
+              break;
             case "Plussable":
               switch (familyDeclName) {
                 case "int":
@@ -938,6 +941,19 @@ namespace Microsoft.Dafny {
               break;
             case "RankOrderableOrTypeParameter":
               okay = ancestorDecl is IndDatatypeDecl || ancestorDecl is TypeParameter;
+              break;
+            case "Sizeable":
+              switch (familyDeclName) {
+                case "set": // but not "iset"
+                case "multiset":
+                case "seq":
+                case "map": // but not "imap"
+                  okay = true;
+                  break;
+                default:
+                  okay = false;
+                  break;
+              }
               break;
             default:
               Contract.Assert(false); // unexpected case
