@@ -609,25 +609,18 @@ namespace Microsoft.Dafny {
       } else if (expr is LetOrFailExpr) {
         var e = (LetOrFailExpr)expr;
         ResolveLetOrFailExpr(e, opts);
+#endif
+
       } else if (expr is QuantifierExpr) {
         var e = (QuantifierExpr)expr;
-        if (opts.codeContext is Function) {
-          ((Function)opts.codeContext).ContainsQuantifier = true;
+        if (opts.codeContext is Function enclosingFunction) {
+          enclosingFunction.ContainsQuantifier = true;
         }
         Contract.Assert(e.SplitQuantifier == null); // No split quantifiers during resolution
-        int prevErrorCount = reporter.Count(ErrorLevel.Error);
-        bool _val = true;
-        bool typeQuantifier = Attributes.ContainsBool(e.Attributes, "typeQuantifier", ref _val) && _val;
-        allTypeParameters.PushMarker();
-        ResolveTypeParameters(e.TypeArgs, true, e);
         scope.PushMarker();
-        foreach (BoundVar v in e.BoundVars) {
+        foreach (var v in e.BoundVars) {
           ScopePushAndReport(scope, v, "bound-variable");
-          var option = typeQuantifier ? new ResolveTypeOption(e) : new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies);
-          ResolveType(v.tok, v.Type, opts.codeContext, option, typeQuantifier ? e.TypeArgs : null);
-        }
-        if (e.TypeArgs.Count > 0 && !typeQuantifier) {
-          ReportError(expr, "a quantifier cannot quantify over types. Possible fix: use the experimental attribute :typeQuantifier");
+          resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
         }
         if (e.Range != null) {
           ResolveExpression(e.Range, opts);
@@ -637,41 +630,33 @@ namespace Microsoft.Dafny {
         ConstrainTypeExprBool(e.Term, "body of quantifier must be of type bool (instead got {0})");
         // Since the body is more likely to infer the types of the bound variables, resolve it
         // first (above) and only then resolve the attributes (below).
-        ResolveAttributes(e.Attributes, e, opts);
+        ResolveAttributes(e, opts, false);
         scope.PopMarker();
-        allTypeParameters.PopMarker();
-        expr.Type = Type.Bool;
+        ConstrainResultToBoolFamilyOperator(expr, e.WhatKind);
 
       } else if (expr is SetComprehension) {
         var e = (SetComprehension)expr;
-        int prevErrorCount = reporter.Count(ErrorLevel.Error);
         scope.PushMarker();
-        foreach (BoundVar v in e.BoundVars) {
+        foreach (var v in e.BoundVars) {
           ScopePushAndReport(scope, v, "bound-variable");
-          ResolveType(v.tok, v.Type, opts.codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
-          var inferredProxy = v.Type as InferredTypeProxy;
-          if (inferredProxy != null) {
-            Contract.Assert(!inferredProxy.KeepConstraints);  // in general, this proxy is inferred to be a base type
-          }
+          resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
         }
         ResolveExpression(e.Range, opts);
         ConstrainTypeExprBool(e.Range, "range of comprehension must be of type bool (instead got {0})");
         ResolveExpression(e.Term, opts);
 
-        ResolveAttributes(e.Attributes, e, opts);
+        ResolveAttributes(e, opts, false);
         scope.PopMarker();
-        expr.Type = new SetType(e.Finite, e.Term.Type);
+        expr.PreType = new DPreType(BuiltInTypeDecl(e.Finite ? "set" : "iset"), new List<PreType>() { e.Term.PreType });
 
       } else if (expr is MapComprehension) {
         var e = (MapComprehension)expr;
-        int prevErrorCount = reporter.Count(ErrorLevel.Error);
         scope.PushMarker();
         Contract.Assert(e.BoundVars.Count == 1 || (1 < e.BoundVars.Count && e.TermLeft != null));
         foreach (BoundVar v in e.BoundVars) {
           ScopePushAndReport(scope, v, "bound-variable");
-          ResolveType(v.tok, v.Type, opts.codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
-          var inferredProxy = v.Type as InferredTypeProxy;
-          if (inferredProxy != null) {
+          resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          if (v.Type is InferredTypeProxy inferredProxy) {
             Contract.Assert(!inferredProxy.KeepConstraints);  // in general, this proxy is inferred to be a base type
           }
         }
@@ -682,10 +667,12 @@ namespace Microsoft.Dafny {
         }
         ResolveExpression(e.Term, opts);
 
-        ResolveAttributes(e.Attributes, e, opts);
+        ResolveAttributes(e, opts, false);
         scope.PopMarker();
-        expr.Type = new MapType(e.Finite, e.TermLeft != null ? e.TermLeft.Type : e.BoundVars[0].Type, e.Term.Type);
+        expr.PreType = new DPreType(BuiltInTypeDecl(e.Finite ? "map" : "imap"),
+          new List<PreType>() { e.TermLeft != null ? e.TermLeft.PreType : e.BoundVars[0].PreType, e.Term.PreType });
 
+#if SOON
       } else if (expr is LambdaExpr) {
         var e = (LambdaExpr)expr;
         int prevErrorCount = reporter.Count(ErrorLevel.Error);
