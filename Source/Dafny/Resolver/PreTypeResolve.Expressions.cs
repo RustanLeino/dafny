@@ -378,33 +378,36 @@ namespace Microsoft.Dafny {
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected unary operator
         }
 
-#if SOON
       } else if (expr is ConversionExpr) {
         var e = (ConversionExpr)expr;
         ResolveExpression(e.E, opts);
-        var prevErrorCount = reporter.Count(ErrorLevel.Error);
-        ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
-        if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-          if (e.ToType.IsNumericBased(Type.NumericPersuasion.Int)) {
-            AddXConstraint(expr.tok, "NumericOrBitvectorOrCharOrORDINAL", e.E.Type, "type conversion to an int-based type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
-          } else if (e.ToType.IsNumericBased(Type.NumericPersuasion.Real)) {
-            AddXConstraint(expr.tok, "NumericOrBitvectorOrCharOrORDINAL", e.E.Type, "type conversion to a real-based type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
-          } else if (e.ToType.IsBitVectorType) {
-            AddXConstraint(expr.tok, "NumericOrBitvectorOrCharOrORDINAL", e.E.Type, "type conversion to a bitvector-based type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
-          } else if (e.ToType.IsCharType) {
-            AddXConstraint(expr.tok, "NumericOrBitvectorOrCharOrORDINAL", e.E.Type, "type conversion to a char type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
-          } else if (e.ToType.IsBigOrdinalType) {
-            AddXConstraint(expr.tok, "NumericOrBitvectorOrCharOrORDINAL", e.E.Type, "type conversion to an ORDINAL type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
-          } else if (e.ToType.IsRefType) {
-            AddAssignableConstraint(expr.tok, e.ToType, e.E.Type, "type cast to reference type '{0}' must be from an expression assignable to it (got '{1}')");
+        var prevErrorCount = ErrorCount;
+        resolver.ResolveType(e.tok, e.ToType, opts.codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null);
+        if (ErrorCount == prevErrorCount) {
+          var toPreType = (DPreType)Type2PreType(e.ToType);
+          var ancestorDecl = AncestorDecl(toPreType.Decl);
+          var familyDeclName = ancestorDecl.Name;
+          if (familyDeclName == "int") {
+            AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to an int-based type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
+          } else if (familyDeclName == "real") {
+            AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to a real-based type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
+          } else if (IsBitvectorName(familyDeclName)) {
+            AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to a bitvector-based type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
+          } else if (familyDeclName == "char") {
+            AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to a char type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
+          } else if (familyDeclName == "ORDINAL") {
+            AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to an ORDINAL type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
+          } else if (DPreType.IsReferenceTypeDecl(ancestorDecl)) {
+            AddAssignableConstraint(toPreType, e.E.PreType, expr.tok, "type cast to reference type '{0}' must be from an expression assignable to it (got '{1}')");
           } else {
             ReportError(expr, "type conversions are not supported to this type (got {0})", e.ToType);
           }
-          e.Type = e.ToType;
+          e.PreType = toPreType;
         } else {
-          e.Type = new InferredTypeProxy();
+          e.PreType = CreatePreTypeProxy("'as' target type");
         }
 
+#if SOON
       } else if (expr is TypeTestExpr) {
         var e = (TypeTestExpr)expr;
         ResolveExpression(e.E, opts);

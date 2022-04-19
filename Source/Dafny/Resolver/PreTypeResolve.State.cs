@@ -302,7 +302,7 @@ namespace Microsoft.Dafny {
           // else do nothing for now
           if (ptSub.Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0) {
             // there are parent traits
-          } else if (ptSub.Decl is ClassDecl cl && !(ptSub.Decl is ArrowTypeDecl) && !cl.IsObjectTrait) {
+          } else if (DPreType.IsReferenceTypeDecl(ptSub.Decl) && !((ClassDecl)ptSub.Decl).IsObjectTrait) {
             // this is a non-object reference type, so it implicitly has "object" as a super-trait
           } else {
             var arguments = CreateProxiesForTypesAccordingToVariance(ptSub.Decl.TypeArgs, ptSub.Arguments);
@@ -870,7 +870,7 @@ namespace Microsoft.Dafny {
               okay = familyDeclName == "seq";
               break;
             case "IsNullableRefType":
-              okay = pt.Decl is ClassDecl && !(pt.Decl is ArrowTypeDecl);
+              okay = DPreType.IsReferenceTypeDecl(pt.Decl);
               break;
             case "IsBitvector":
               okay = IsBitvectorName(familyDeclName);
@@ -880,6 +880,9 @@ namespace Microsoft.Dafny {
               break;
             case "NumericOrBitvector":
               okay = familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName);
+              break;
+            case "NumericOrBitvectorOrCharOrORDINAL":
+              okay = familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName) || familyDeclName == "char" || familyDeclName == "ORDINAL";
               break;
             case "BooleanBits":
               okay = familyDeclName == "bool" || IsBitvectorName(familyDeclName);
