@@ -407,18 +407,14 @@ namespace Microsoft.Dafny {
           e.PreType = CreatePreTypeProxy("'as' target type");
         }
 
-#if SOON
       } else if (expr is TypeTestExpr) {
         var e = (TypeTestExpr)expr;
         ResolveExpression(e.E, opts);
-        var prevErrorCount = reporter.Count(ErrorLevel.Error);
-        ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
-        AddAssignableConstraint(expr.tok, e.ToType, e.E.Type, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
-        e.Type = Type.Bool;
-#endif
+        ConstrainResultToBoolFamilyOperator(expr, "is");
+        resolver.ResolveType(e.tok, e.ToType, opts.codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null);
+        AddAssignableConstraint(Type2PreType(e.ToType), e.E.PreType, expr.tok, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
 
       } else if (expr is BinaryExpr) {
-
         var e = (BinaryExpr)expr;
         ResolveExpression(e.E0, opts);
         ResolveExpression(e.E1, opts);
