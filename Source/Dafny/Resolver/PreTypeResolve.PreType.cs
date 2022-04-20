@@ -7,7 +7,7 @@
 
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
-using System.Linq;
+using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
   public abstract class PreType {
@@ -170,6 +170,16 @@ namespace Microsoft.Dafny {
 
     public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {
       return this;
+    }
+  }
+
+  public class TokenPreTypeProxy : PreTypeProxy {
+    public readonly Bpl.IToken tok;
+
+    public TokenPreTypeProxy(Bpl.IToken tok, PreType pt, int uniqueId)
+      : base(uniqueId) {
+      this.tok = tok;
+      Set(pt);
     }
   }
 

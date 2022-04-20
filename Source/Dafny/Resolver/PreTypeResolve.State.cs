@@ -747,6 +747,59 @@ namespace Microsoft.Dafny {
             }
             break;
           }
+          case "Indexable": {
+            // Indexable sourcePreType indexPreType resultPreType
+            // where indexPreType and resultPreType are TokenPreTypeProxy
+            Contract.Assert(constraint.Arguments.Length == 3);
+            var sourcePreType = a0 as DPreType;
+            var a2 = constraint.Arguments[2].Normalize();
+            var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
+            var a2token = ((TokenPreTypeProxy)constraint.Arguments[2]).tok;
+            if (sourcePreType != null) {
+              var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
+              switch (familyDeclName) {
+                case "array":
+                case "seq":
+                  ConstrainToIntFamily(a1, a1token, "index expression must have an integer type (got {0})");
+                  AddSubtypeConstraint(a2, sourcePreType.Arguments[0], a2token, "type does not agree with element type {1} (got {0})");
+                  break;
+                case "multiset":
+                  AddSubtypeConstraint(sourcePreType.Arguments[0], a1, a1token, "type does not agree with element type {0} (got {1})");
+                  ConstrainToIntFamily(a2, a2token, "multiset multiplicity must have an integer type (got {0})");
+                  break;
+                case "map":
+                case "imap":
+                  AddSubtypeConstraint(sourcePreType.Arguments[0], a1, a1token, "type does not agree with domain type {0} (got {1})");
+                  AddSubtypeConstraint(a2, sourcePreType.Arguments[1], a2token, "type does not agree with value type of {1} (got {0})");
+                  break;
+                default:
+                  ReportError(constraint.tok, constraint.ErrorMessage());
+                  break;
+              }
+              used = true;
+            }
+            break;
+          }
+          case "MultiIndexable": {
+            // MultiIndexable sourcePreType resultElementPreType
+            // where resultPreType is TokenPreTypeProxy
+            var sourcePreType = a0.Normalize() as DPreType;
+            var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
+            if (sourcePreType != null) {
+              var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
+              switch (familyDeclName) {
+                case "seq":
+                case "array":
+                  AddSubtypeConstraint(a1, sourcePreType.Arguments[0], a1token, "type does not agree with element type {1} (got {0})");
+                  break;
+              default:
+                ReportError(constraint.tok, constraint.ErrorMessage());
+                break;
+              }
+              used = true;
+            }
+            break;
+          }
           default:
             Contract.Assert(false); // unexpected case
             throw new cce.UnreachableException();

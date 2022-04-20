@@ -96,6 +96,12 @@ namespace Microsoft.Dafny {
       return proxy;
     }
 
+    public PreType WrapTokenAroundPreType(IToken tok, PreType pt) {
+      var proxy = new TokenPreTypeProxy(tok, pt, typeProxyCount++);
+      allPreTypeProxies.Add((proxy, "token PreType"));
+      return proxy;
+    }
+
     public PreType Type2PreType(Type type, string description = null, Type printableType = null) {
       Contract.Requires(type != null);
 

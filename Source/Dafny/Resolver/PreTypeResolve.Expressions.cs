@@ -177,16 +177,15 @@ namespace Microsoft.Dafny {
       } else if (expr is ApplySuffix applySuffix) {
         ResolveApplySuffix(applySuffix, opts, false);
 
-#if TODO
       } else if (expr is MemberSelectExpr) {
         var e = (MemberSelectExpr)expr;
+        Contract.Assert(false); // this case is always handled by ResolveExprDotCall
+#if PROBABLY_NEVER
         ResolveExpression(e.Obj, opts);
-        NonProxyType tentativeReceiverType;
-        var member = ResolveMember(expr.tok, e.Obj.Type, e.MemberName, out tentativeReceiverType);
+        var (member, tentativeReceiverType) = FindMember(expr.tok, e.Obj.PreType, e.MemberName);
         if (member == null) {
-          // error has already been reported by ResolveMember
-        } else if (member is Function) {
-          var fn = member as Function;
+          // error has already been reported by FindMember
+        } else if (member is Function fn) {
           e.Member = fn;
           if (fn is TwoStateFunction && !opts.twoState) {
             ReportError(e.tok, "a two-state function can be used only in a two-state context");
@@ -210,8 +209,7 @@ namespace Microsoft.Dafny {
           e.Type = SelectAppropriateArrowType(fn.tok, fn.Formals.ConvertAll(f => SubstType(f.Type, subst)), SubstType(fn.ResultType, subst),
             fn.Reads.Count != 0, fn.Req.Count != 0);
           AddCallGraphEdge(opts.codeContext, fn, e, false);
-        } else if (member is Field) {
-          var field = (Field)member;
+        } else if (member is Field field) {
           e.Member = field;
           e.TypeApplication_AtEnclosingClass = tentativeReceiverType.TypeArgs;
           e.TypeApplication_JustMember = new List<Type>();
@@ -231,11 +229,12 @@ namespace Microsoft.Dafny {
         } else {
           ReportError(expr, "member {0} in type {1} does not refer to a field or a function", e.MemberName, tentativeReceiverType);
         }
+#endif
 
-      } else if (expr is SeqSelectExpr) {
-        SeqSelectExpr e = (SeqSelectExpr)expr;
-        ResolveSeqSelectExpr(e, opts);
+      } else if (expr is SeqSelectExpr selectExpr) {
+        ResolveSeqSelectExpr(selectExpr, opts);
 
+#if TODO
       } else if (expr is MultiSelectExpr) {
         MultiSelectExpr e = (MultiSelectExpr)expr;
 
@@ -362,8 +361,7 @@ namespace Microsoft.Dafny {
           case UnaryOpExpr.Opcode.Cardinality:
             AddConfirmation("Sizeable", e.E.PreType, expr.tok, "size operator expects a collection argument (instead got {0})");
             expr.PreType = CreatePreTypeProxy("cardinality");
-            AddDefaultAdvice(expr.PreType, AdviceTarget.Int);
-            AddConfirmation("InIntFamily", expr.PreType, expr.tok, "integer literal used as if it had type {0}");
+            ConstrainToIntFamily(expr.PreType, expr.tok, "integer literal used as if it had type {0}");
             break;
           case UnaryOpExpr.Opcode.Allocated:
             // the argument is allowed to have any type at all
@@ -672,27 +670,26 @@ namespace Microsoft.Dafny {
         expr.PreType = new DPreType(BuiltInTypeDecl(e.Finite ? "map" : "imap"),
           new List<PreType>() { e.TermLeft != null ? e.TermLeft.PreType : e.BoundVars[0].PreType, e.Term.PreType });
 
-#if SOON
       } else if (expr is LambdaExpr) {
         var e = (LambdaExpr)expr;
-        int prevErrorCount = reporter.Count(ErrorLevel.Error);
         scope.PushMarker();
-        foreach (BoundVar v in e.BoundVars) {
+        foreach (var v in e.BoundVars) {
           ScopePushAndReport(scope, v, "bound-variable");
-          ResolveType(v.tok, v.Type, opts.codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
         }
 
         if (e.Range != null) {
           ResolveExpression(e.Range, opts);
-          ConstrainTypeExprBool(e.Range, "Precondition must be boolean (got {0})");
+          ConstrainTypeExprBool(e.Range, "precondition must be boolean (got {0})");
         }
         foreach (var read in e.Reads) {
-          ResolveFrameExpression(read, FrameExpressionUse.Reads, opts.codeContext);
+          ResolveFrameExpression(read, Resolver.FrameExpressionUse.Reads, opts.codeContext);
         }
         ResolveExpression(e.Term, opts);
         scope.PopMarker();
-        expr.Type = SelectAppropriateArrowType(e.tok, e.BoundVars.ConvertAll(v => v.Type), e.Body.Type, e.Reads.Count != 0, e.Range != null);
-#endif
+        var typeArguments = e.BoundVars.ConvertAll(v => v.PreType);
+        typeArguments.Add(e.Body.PreType);
+        expr.PreType = new DPreType(BuiltInTypeDecl("~>"), typeArguments);
 
       } else if (expr is WildcardExpr) {
         var obj = new DPreType(BuiltInTypeDecl("object?"), new List<PreType>() {});
@@ -753,6 +750,11 @@ namespace Microsoft.Dafny {
       expr.PreType = CreatePreTypeProxy(proxyDescription);
       AddDefaultAdvice(expr.PreType, AdviceTarget.Bool);
       AddConfirmation("InBoolFamily", expr.PreType, expr.tok, errorFormat);
+    }
+
+    private void ConstrainToIntFamily(PreType preType, IToken tok, string errorFormat) {
+      AddDefaultAdvice(preType, AdviceTarget.Int);
+      AddConfirmation("InIntFamily", preType, tok, errorFormat);
     }
 
     private void ConstrainOperandTypes(BinaryExpr expr, string opString) {
@@ -1646,6 +1648,36 @@ namespace Microsoft.Dafny {
         caller.EnclosingModule.CallGraph.AddEdge(caller, datatypeDecl);
       }
       return ok && ctor.Formals.Count == dtv.Arguments.Count;
+    }
+
+    void ResolveSeqSelectExpr(SeqSelectExpr e, Resolver.ResolveOpts opts) {
+      Contract.Requires(e != null);
+      Contract.Requires(e.PreType == null); // hasn't been resolved yet
+
+      ResolveExpression(e.Seq, opts);
+
+      if (e.SelectOne) {
+        ResolveExpression(e.E0, opts);
+        Contract.Assert(e.E1 == null);
+        e.PreType = CreatePreTypeProxy("seq selection");
+        var a1 = WrapTokenAroundPreType(e.E0.tok, e.E0.PreType);
+        var a2 = WrapTokenAroundPreType(e.tok, e.PreType);
+        AddGuardedConstraint("Indexable", e.tok, "element selection requires a sequence, array, multiset, or map (got {0})", e.Seq.PreType, a1, a2);
+      } else {
+        var resultElementPreType = CreatePreTypeProxy("multi-index selection");
+        e.PreType = new DPreType(BuiltInTypeDecl("seq"), new List<PreType>() { resultElementPreType });
+        var a1 = WrapTokenAroundPreType(e.tok, resultElementPreType);
+        AddGuardedConstraint("MultiIndexable", e.tok, "multi-selection of elements requires a sequence or array (got {0})",
+          e.Seq.PreType, a1);
+        if (e.E0 != null) {
+          ResolveExpression(e.E0, opts);
+          ConstrainToIntFamily(e.E0.PreType, e.E0.tok, "multi-element selection position expression must have an integer type (got {0})");
+        }
+        if (e.E1 != null) {
+          ResolveExpression(e.E1, opts);
+          ConstrainToIntFamily(e.E1.PreType, e.E1.tok, "multi-element selection position expression must have an integer type (got {0})");
+        }
+      }
     }
 
   }
