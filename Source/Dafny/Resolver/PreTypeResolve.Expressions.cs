@@ -234,26 +234,23 @@ namespace Microsoft.Dafny {
       } else if (expr is SeqSelectExpr selectExpr) {
         ResolveSeqSelectExpr(selectExpr, opts);
 
-#if TODO
       } else if (expr is MultiSelectExpr) {
-        MultiSelectExpr e = (MultiSelectExpr)expr;
+        var e = (MultiSelectExpr)expr;
 
         ResolveExpression(e.Array, opts);
-        Contract.Assert(e.Array.Type.TypeArgs != null);  // if it is null, should make a 1-element list with a Proxy
-        Type elementType = e.Array.Type.TypeArgs.Count > 0 ?
-          e.Array.Type.TypeArgs[0] :
-          new InferredTypeProxy();
-        ConstrainSubtypeRelation(ResolvedArrayType(e.Array.tok, e.Indices.Count, elementType, opts.codeContext, true), e.Array.Type, e.Array,
-          "array selection requires an array{0} (got {1})", e.Indices.Count, e.Array.Type);
+        var elementPreType = CreatePreTypeProxy("multi-dim array select");
+        var arrayPreType = new DPreType(BuiltInTypeDecl($"array{e.Indices.Count}"), new List<PreType>() { elementPreType });
+        AddSubtypeConstraint(arrayPreType, e.Array.PreType, e.Array.tok, "array selection requires an {0} (got {1})");
         int i = 0;
-        foreach (Expression idx in e.Indices) {
-          Contract.Assert(idx != null);
-          ResolveExpression(idx, opts);
-          ConstrainToIntegerType(idx, true, "array selection requires integer- or bitvector-based numeric indices (got {0} for index " + i + ")");
+        foreach (var indexExpression in e.Indices) {
+          ResolveExpression(indexExpression, opts);
+          ConstrainToIntFamily(indexExpression.PreType, indexExpression.tok,
+            "array selection requires integer- or bitvector-based numeric indices (got {0} for index " + i + ")");
           i++;
         }
-        e.Type = elementType;
+        e.PreType = elementPreType;
 
+#if TODO
       } else if (expr is SeqUpdateExpr) {
         SeqUpdateExpr e = (SeqUpdateExpr)expr;
         ResolveExpression(e.Seq, opts);

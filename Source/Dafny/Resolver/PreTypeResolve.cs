@@ -65,14 +65,22 @@ namespace Microsoft.Dafny {
 
     TopLevelDecl BuiltInTypeDecl(string name) {
       Contract.Requires(name != null);
-      if (!preTypeBuiltins.TryGetValue(name, out var decl)) {
+      if (preTypeBuiltins.TryGetValue(name, out var decl)) {
+        return decl;
+      }
+      if (IsArrayName(name, out var dims)) {
+        // make sure the array class has been created
+        var at = resolver.builtIns.ArrayType(Token.NoToken, dims,
+          new List<Type> { new InferredTypeProxy() }, true);
+        decl = resolver.builtIns.arrayTypeDecls[dims];
+      } else {
         var typeParameterCount =
           name == "map" || name == "imap" ? 2 :
           name == "set" || name == "iset" || name == "seq" || name == "multiset" ? 1 :
           0;
         decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, typeParameterCount, _ => false, null);
-        preTypeBuiltins.Add(name, decl);
       }
+      preTypeBuiltins.Add(name, decl);
       return decl;
     }
 
@@ -155,6 +163,21 @@ namespace Microsoft.Dafny {
         var bits = name.Substring(2);
         return bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
       }
+      return false;
+    }
+
+    public static bool IsArrayName(string name, out int dimensions) {
+      Contract.Requires(name != null);
+      if (name.StartsWith("array")) {
+        var dims = name.Substring(5);
+        if (dims.Length == 0) {
+          dimensions = 1;
+          return true;
+        } else if (dims[0] != '0' && dims != "1" && int.TryParse(dims, out dimensions)) {
+          return true;
+        }
+      }
+      dimensions = 0;
       return false;
     }
 
