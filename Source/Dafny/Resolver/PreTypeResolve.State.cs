@@ -669,8 +669,8 @@ namespace Microsoft.Dafny {
             // The tests below distinguish between the uniform and non-uniform cases, but otherwise may allow some cases
             // that are not included above. The instigator of the "Minusable" guard will arrange to confirm that only the
             // expected types are allowed.
-            var left = a0.Normalize() as DPreType;
-            var right = a1.Normalize() as DPreType;
+            var left = a0 as DPreType;
+            var right = a1 as DPreType;
             var familyDeclNameLeft = left == null ? null : AncestorDecl(left.Decl).Name;
             var familyDeclNameRight = right == null ? null : AncestorDecl(right.Decl).Name;
             if (familyDeclNameLeft == "map" || familyDeclNameLeft == "imap") {
@@ -706,8 +706,8 @@ namespace Microsoft.Dafny {
             break;
           }
           case "Lt": {
-            var left = a0.Normalize() as DPreType;
-            var right = a1.Normalize() as DPreType;
+            var left = a0 as DPreType;
+            var right = a1 as DPreType;
             if (left != null && (left.Decl is IndDatatypeDecl || left.Decl is TypeParameter)) {
               AddConfirmation("RankOrderable", a1, constraint.tok,
                 $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
@@ -727,8 +727,8 @@ namespace Microsoft.Dafny {
             break;
           }
           case "Gt": {
-            var left = a0.Normalize() as DPreType;
-            var right = a1.Normalize() as DPreType;
+            var left = a0 as DPreType;
+            var right = a1 as DPreType;
             if (left != null && left.Decl is IndDatatypeDecl) {
               AddConfirmation("RankOrderableOrTypeParameter", a1, constraint.tok,
                 $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
@@ -783,7 +783,7 @@ namespace Microsoft.Dafny {
           case "MultiIndexable": {
             // MultiIndexable sourcePreType resultElementPreType
             // where resultPreType is TokenPreTypeProxy
-            var sourcePreType = a0.Normalize() as DPreType;
+            var sourcePreType = a0 as DPreType;
             var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
             if (sourcePreType != null) {
               var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
@@ -796,6 +796,41 @@ namespace Microsoft.Dafny {
                 ReportError(constraint.tok, constraint.ErrorMessage());
                 break;
               }
+              used = true;
+            }
+            break;
+          }
+          case "SeqUpdatable": {
+            // SeqUpdatable sourcePreType indexPreType valuePreType
+            // where indexPreType and valuePreType are TokenPreTypeProxy
+            Contract.Assert(constraint.Arguments.Length == 3);
+            var sourcePreType = a0 as DPreType;
+            var a2 = constraint.Arguments[2].Normalize();
+            var ancestorDecl = AncestorDecl(sourcePreType.Decl);
+            var familyDeclName = sourcePreType == null ? null : ancestorDecl.Name;
+            var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
+            var a2token = ((TokenPreTypeProxy)constraint.Arguments[2]).tok;
+            if (familyDeclName == "seq") {
+              var elementPreType = sourcePreType.Arguments[0];
+              ConstrainToIntFamily(a1, a1token, "sequence update requires integer- or bitvector-based index (got {0})");
+              AddSubtypeConstraint(elementPreType, a2, a2token,
+                "sequence update requires the value to have the element type of the sequence (got {0})");
+              used = true;
+            } else if (familyDeclName == "map" || familyDeclName == "imap") {
+              var domainPreType = sourcePreType.Arguments[0];
+              var rangePreType = sourcePreType.Arguments[1];
+              AddSubtypeConstraint(domainPreType, a1, a1token,
+                familyDeclName + " update requires domain element to be of type {0} (got {1})");
+              AddSubtypeConstraint(rangePreType, a2, a2token,
+                familyDeclName + " update requires the value to have the range type {0} (got {1})");
+              used = true;
+            } else if (familyDeclName == "multiset") {
+              var elementPreType = sourcePreType.Arguments[0];
+              AddSubtypeConstraint(elementPreType, a1, a1token, "multiset update requires domain element to be of type {0} (got {1})");
+              ConstrainToIntFamily(a2, a2token, "multiset update requires integer-based numeric value (got {0})");
+              used = true;
+            } else if (familyDeclName != null) {
+              ReportError(constraint.tok, constraint.ErrorMessage());
               used = true;
             }
             break;
@@ -942,6 +977,9 @@ namespace Microsoft.Dafny {
               break;
             case "IntOrORDINAL":
               okay = familyDeclName == "int" || familyDeclName == "ORDINAL";
+              break;
+            case "IntOrBitvectorOrORDINAL":
+              okay = familyDeclName == "int" || IsBitvectorName(familyDeclName) || familyDeclName == "ORDINAL";
               break;
             case "Plussable":
               switch (familyDeclName) {

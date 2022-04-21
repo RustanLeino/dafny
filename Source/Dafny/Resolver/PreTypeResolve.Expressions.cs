@@ -58,7 +58,7 @@ namespace Microsoft.Dafny {
           } else if (e.Value is BigInteger) {
             e.PreType = CreatePreTypeProxy($"integer literal '{e.Value}'");
             AddDefaultAdvice(e.PreType, AdviceTarget.Int);
-            AddConfirmation("InIntFamily", e.PreType, e.tok, "integer literal used as if it had type {0}");
+            AddConfirmation("IntOrBitvectorOrORDINAL", e.PreType, e.tok, "integer literal used as if it had type {0}");
           } else if (e.Value is BaseTypes.BigDec) {
             e.PreType = CreatePreTypeProxy($"real literal '{e.Value}'");
             AddDefaultAdvice(e.PreType, AdviceTarget.Real);
@@ -250,15 +250,18 @@ namespace Microsoft.Dafny {
         }
         e.PreType = elementPreType;
 
-#if TODO
       } else if (expr is SeqUpdateExpr) {
-        SeqUpdateExpr e = (SeqUpdateExpr)expr;
+        var e = (SeqUpdateExpr)expr;
         ResolveExpression(e.Seq, opts);
         ResolveExpression(e.Index, opts);
         ResolveExpression(e.Value, opts);
-        AddXConstraint(expr.tok, "SeqUpdatable", e.Seq.Type, e.Index, e.Value, "update requires a sequence, map, or multiset (got {0})");
-        expr.Type = e.Seq.Type;
+        var indexToken = WrapTokenAroundPreType(e.Index);
+        var valueToken = WrapTokenAroundPreType(e.Value);
+        AddGuardedConstraint("SeqUpdatable", expr.tok, "update requires a sequence, map, or multiset (got {0})",
+          e.Seq.PreType, indexToken, valueToken);
+        expr.PreType = e.Seq.PreType;
 
+#if TODO
       } else if (expr is DatatypeUpdateExpr) {
         var e = (DatatypeUpdateExpr)expr;
         ResolveExpression(e.Root, opts);
@@ -1657,8 +1660,8 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.E0, opts);
         Contract.Assert(e.E1 == null);
         e.PreType = CreatePreTypeProxy("seq selection");
-        var a1 = WrapTokenAroundPreType(e.E0.tok, e.E0.PreType);
-        var a2 = WrapTokenAroundPreType(e.tok, e.PreType);
+        var a1 = WrapTokenAroundPreType(e.E0);
+        var a2 = WrapTokenAroundPreType(e);
         AddGuardedConstraint("Indexable", e.tok, "element selection requires a sequence, array, multiset, or map (got {0})", e.Seq.PreType, a1, a2);
       } else {
         var resultElementPreType = CreatePreTypeProxy("multi-index selection");

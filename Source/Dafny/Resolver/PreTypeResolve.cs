@@ -110,6 +110,11 @@ namespace Microsoft.Dafny {
       return proxy;
     }
 
+    public PreType WrapTokenAroundPreType(Expression expr) {
+      var proxy = new TokenPreTypeProxy(expr.tok, expr.PreType, -1); // don't use the uniqueId
+      return proxy;
+    }
+
     public PreType Type2PreType(Type type, string description = null, Type printableType = null) {
       Contract.Requires(type != null);
 
