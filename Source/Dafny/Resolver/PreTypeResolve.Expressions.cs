@@ -834,27 +834,20 @@ namespace Microsoft.Dafny {
           } else {
             ReportError(tok, $"member '{memberName}' does not exist in {receiverDecl.WhatKind} '{receiverDecl.Name}'");
           }
-        } else if (!resolver.VisibleInScope(member)) {
-          ReportError(tok, $"member '{memberName}' has not been imported in this scope and cannot be accessed here");
-        } else {
+          return (null, null);
+        } else if (resolver.VisibleInScope(member)) {
           // TODO: We should return the original "member", not an overridden member. Alternatively, we can just return "member" so that the
           // caller can figure out the types, and then a later pass can figure out which particular "member" is intended.
           return (member, new DPreType(receiverDecl, this));
         }
-        return (null, null);
 
       } else if (receiverDecl is ValuetypeDecl valuetypeDecl) {
         if (valuetypeDecl.Members.TryGetValue(memberName, out var member)) {
           return (member, new DPreType(receiverDecl, this));
         }
-        ReportError(tok, $"member '{memberName}' does not exist in type '{receiverDecl.Name}'");
-        return (null, null);
-
-      } else {
-        // the type has no members
-        ReportError(tok, $"member '{memberName}' does not exist in {receiverDecl.WhatKind} '{receiverDecl.Name}'");
-        return (null, null);
       }
+      ReportError(tok, $"member '{memberName}' does not exist in {receiverDecl.WhatKind} '{receiverDecl.Name}'");
+      return (null, null);
     }
 
     /// <summary>
