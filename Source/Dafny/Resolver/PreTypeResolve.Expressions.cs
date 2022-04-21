@@ -799,9 +799,8 @@ namespace Microsoft.Dafny {
       Contract.Requires(memberName != null);
 
       receiverPreType = receiverPreType.Normalize();
-      TopLevelDeclWithMembers receiverDecl;
+      TopLevelDecl receiverDecl = null;
       if (receiverPreType is PreTypeProxy proxy) {
-        receiverDecl = null;
         // If there is a subtype constraint "proxy :> sub<X>", then (if the program is legal at all, then) "sub" must have the member "memberName".
         foreach (var sub in AllSubBounds(proxy, new HashSet<PreTypeProxy>())) {
           receiverDecl = sub.Decl as TopLevelDeclWithMembers; // this may come back as null, but that's fine--then, we'll just report an error below
@@ -816,54 +815,46 @@ namespace Microsoft.Dafny {
             }
           }
         }
+        if (receiverDecl == null) {
+          ReportError(tok, "type of the receiver is not fully determined at this program point");
+          return (null, null);
+        }
       } else {
         var dp = (DPreType)receiverPreType;
-        receiverDecl = dp.Decl as TopLevelDeclWithMembers;
-        // TODO: does this case need to do something like this?  var cd = ctype?.AsTopLevelTypeWithMembersBypassInternalSynonym;
+        receiverDecl = dp.Decl;
       }
-      if (receiverDecl == null) {
-        ReportError(tok, "type of the receiver is not fully determined at this program point");
+      Contract.Assert(receiverDecl != null);
+
+      if (receiverDecl is TopLevelDeclWithMembers receiverDeclWithMembers) {
+        // TODO: does this case need to do something like this?  var cd = ctype?.AsTopLevelTypeWithMembersBypassInternalSynonym;
+
+        if (!resolver.classMembers[receiverDeclWithMembers].TryGetValue(memberName, out var member)) {
+          if (memberName == "_ctor") {
+            ReportError(tok, $"{receiverDecl.WhatKind} '{receiverDecl.Name}' does not have an anonymous constructor");
+          } else {
+            ReportError(tok, $"member '{memberName}' does not exist in {receiverDecl.WhatKind} '{receiverDecl.Name}'");
+          }
+        } else if (!resolver.VisibleInScope(member)) {
+          ReportError(tok, $"member '{memberName}' has not been imported in this scope and cannot be accessed here");
+        } else {
+          // TODO: We should return the original "member", not an overridden member. Alternatively, we can just return "member" so that the
+          // caller can figure out the types, and then a later pass can figure out which particular "member" is intended.
+          return (member, new DPreType(receiverDecl, this));
+        }
+        return (null, null);
+
+      } else if (receiverDecl is ValuetypeDecl valuetypeDecl) {
+        if (valuetypeDecl.Members.TryGetValue(memberName, out var member)) {
+          return (member, new DPreType(receiverDecl, this));
+        }
+        ReportError(tok, $"member '{memberName}' does not exist in type '{receiverDecl.Name}'");
+        return (null, null);
+
+      } else {
+        // the type has no members
+        ReportError(tok, $"member '{memberName}' does not exist in {receiverDecl.WhatKind} '{receiverDecl.Name}'");
         return (null, null);
       }
-
-#if SOON
-      foreach (var valuet in resolver.valuetypeDecls) {
-        if (valuet.IsThisType(receiverPreType)) {
-          MemberDecl member;
-          if (valuet.Members.TryGetValue(memberName, out member)) {
-            SelfType resultType = null;
-            if (member is SpecialFunction) {
-              resultType = ((SpecialFunction)member).ResultType as SelfType;
-            } else if (member is SpecialField) {
-              resultType = ((SpecialField)member).Type as SelfType;
-            }
-            if (resultType != null) {
-              SelfTypeSubstitution = new Dictionary<TypeParameter, Type>();
-              SelfTypeSubstitution.Add(resultType.TypeArg, receiverPreType);
-              resultType.ResolvedType = receiverPreType;
-            }
-            tentativeReceiverType = (NonProxyType)receiverPreType;
-            return member;
-          }
-          break;
-        }
-      }
-#endif
-
-      if (!resolver.classMembers[receiverDecl].TryGetValue(memberName, out var member)) {
-        if (memberName == "_ctor") {
-          ReportError(tok, "{0} '{1}' does not have an anonymous constructor", receiverDecl.WhatKind, receiverDecl.Name);
-        } else {
-          ReportError(tok, "member '{0}' does not exist in {2} '{1}'", memberName, receiverDecl.Name, receiverDecl.WhatKind);
-        }
-      } else if (!resolver.VisibleInScope(member)) {
-        ReportError(tok, "member '{0}' has not been imported in this scope and cannot be accessed here", memberName);
-      } else {
-        // TODO: We should return the original "member", not an overridden member. Alternatively, we can just return "member" so that the
-        // caller can figure out the types, and then a later pass can figure out which particular "member" is intended.
-        return (member, new DPreType(receiverDecl, this));
-      }
-      return (null, null);
     }
 
     /// <summary>

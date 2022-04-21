@@ -73,12 +73,24 @@ namespace Microsoft.Dafny {
         var at = resolver.builtIns.ArrayType(Token.NoToken, dims,
           new List<Type> { new InferredTypeProxy() }, true);
         decl = resolver.builtIns.arrayTypeDecls[dims];
+      } else if (IsBitvectorName(name, out var width)) {
+        var bvDecl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, 0, t => t.IsBitVectorType, null);
+        var bvType = new BitvectorType(width);
+        resolver.AddRotateMember(bvDecl, "RotateLeft", new SelfType());
+        resolver.AddRotateMember(bvDecl, "RotateRight", new SelfType());
+        decl = bvDecl;
       } else {
-        var typeParameterCount =
-          name == "map" || name == "imap" ? 2 :
-          name == "set" || name == "iset" || name == "seq" || name == "multiset" ? 1 :
-          0;
-        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, typeParameterCount, _ => false, null);
+        foreach (var valueTypeDecl in resolver.valuetypeDecls) {
+          if (valueTypeDecl.Name == name) {
+            // bool, int, real, ORDINAL, map, imap
+            decl = valueTypeDecl;
+            break;
+          }
+        }
+        if (decl == null) {
+          var typeParameterCount = name == "set" || name == "iset" || name == "seq" || name == "multiset" ? 1 : 0;
+          decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, typeParameterCount, _ => false, null);
+        }
       }
       preTypeBuiltins.Add(name, decl);
       return decl;
@@ -162,13 +174,19 @@ namespace Microsoft.Dafny {
       return decl;
     }
 
-    public static bool IsBitvectorName(string name) {
+    public static bool IsBitvectorName(string name, out int width) {
       Contract.Requires(name != null);
       if (name.StartsWith("bv")) {
         var bits = name.Substring(2);
-        return bits == "0" || (bits.Length != 0 && bits[0] != '0' && bits.All(ch => '0' <= ch && ch <= '9'));
+        width = 0; // set to 0, in case the first disjunct of the next line evaluates to true
+        return bits == "0" || (bits.Length != 0 && bits[0] != '0' && int.TryParse(bits, out width));
       }
+      width = 0; // unused by caller
       return false;
+    }
+
+    public static bool IsBitvectorName(string name) {
+      return IsBitvectorName(name, out _);
     }
 
     public static bool IsArrayName(string name, out int dimensions) {
@@ -182,7 +200,7 @@ namespace Microsoft.Dafny {
           return true;
         }
       }
-      dimensions = 0;
+      dimensions = 0; // unused by caller
       return false;
     }
 
