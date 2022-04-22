@@ -303,23 +303,32 @@ namespace Microsoft.Dafny {
         });
         expr.PreType = e.Seq.PreType;
 
-#if TODO
       } else if (expr is DatatypeUpdateExpr) {
         var e = (DatatypeUpdateExpr)expr;
         ResolveExpression(e.Root, opts);
-        var ty = PartiallyResolveTypeForMemberSelection(expr.tok, e.Root.Type);
-        if (!ty.IsDatatype) {
-          ReportError(expr, "datatype update expression requires a root expression of a datatype (got {0})", ty);
-        } else {
-          List<DatatypeCtor> legalSourceConstructors;
-          var let = ResolveDatatypeUpdate(expr.tok, e.Root, ty.AsDatatype, e.Updates, opts, out legalSourceConstructors);
-          if (let != null) {
-            e.ResolvedExpression = let;
-            e.LegalSourceConstructors = legalSourceConstructors;
-            expr.Type = ty;
+        expr.PreType = CreatePreTypeProxy("datatype update");
+        AddGuardedConstraint(() => {
+          var (_, memberName, _) = e.Updates[0];
+          var (_, tentativeRootPreType) = FindMember(expr.tok, e.Root.PreType, memberName);
+          if (tentativeRootPreType != null) {
+            if (tentativeRootPreType.Decl is DatatypeDecl datatypeDecl) {
+              var let = ResolveDatatypeUpdate(expr.tok, tentativeRootPreType, e.Root, datatypeDecl, e.Updates, opts, out var legalSourceConstructors);
+              // if 'let' returns as 'null', an error has already been reported
+              if (let != null) {
+                e.ResolvedExpression = let;
+                e.LegalSourceConstructors = legalSourceConstructors;
+                AddEqualityConstraint(expr.PreType, let.PreType, expr.tok,
+                  "result of datatype update expression of type '{1}' is used as if it were of type '{0}'");
+              }
+            } else {
+              ReportError(expr, "datatype update expression requires a root expression of a datatype (got {0})", tentativeRootPreType);
+            }
+            return true;
           }
-        }
+          return false;
+        });
 
+#if TODO
       } else if (expr is FunctionCallExpr) {
         var e = (FunctionCallExpr)expr;
         ResolveFunctionCallExpr(e, opts);
@@ -1612,6 +1621,154 @@ namespace Microsoft.Dafny {
         e.PreType = r.PreType;
       }
       return null; // not a method call
+    }
+
+    /// <summary>
+    /// Attempt to rewrite a datatype update into more primitive operations, after doing the appropriate resolution checks.
+    /// Upon success, return that rewritten expression and set "legalSourceConstructors".
+    /// Upon some resolution error, report an error and return null (caller should not use "legalSourceConstructors").
+    /// Note, "root.PreType" is allowed to be different from "rootPreType"; in particular, "root.PreType" may still be a proxy.
+    /// </summary>
+    Expression ResolveDatatypeUpdate(IToken tok, DPreType rootPreType, Expression root, DatatypeDecl dt,
+      List<Tuple<IToken, string, Expression>> memberUpdates,
+      Resolver.ResolveOpts opts, out List<DatatypeCtor> legalSourceConstructors) {
+      Contract.Requires(tok != null);
+      Contract.Requires(root != null);
+      Contract.Requires(rootPreType != null);
+      Contract.Requires(dt != null);
+      Contract.Requires(memberUpdates != null);
+      Contract.Requires(opts != null);
+
+      legalSourceConstructors = null;
+      Contract.Assert(rootPreType.Decl == dt);
+      Contract.Assert(rootPreType.Arguments.Count == dt.TypeArgs.Count);
+
+      // First, compute the list of candidate result constructors, that is, the constructors
+      // that have all of the mentioned destructors. Issue errors for duplicated names and for
+      // names that are not destructors in the datatype.
+      var candidateResultCtors = dt.Ctors;  // list of constructors that have all the so-far-mentioned destructors
+      var memberNames = new HashSet<string>();
+      var rhsBindings = new Dictionary<string, Tuple<BoundVar/*let variable*/, IdentifierExpr/*id expr for let variable*/, Expression /*RHS in given syntax*/>>();
+      foreach (var (updateToken, updateName, updateValue) in memberUpdates) {
+        if (memberNames.Contains(updateName)) {
+          ReportError(updateToken, $"duplicate update member '{updateName}'");
+        } else {
+          memberNames.Add(updateName);
+          if (!resolver.classMembers[dt].TryGetValue(updateName, out var member)) {
+            ReportError(updateToken, "member '{0}' does not exist in datatype '{1}'", updateName, dt.Name);
+          } else if (!(member is DatatypeDestructor)) {
+            ReportError(updateToken, "member '{0}' is not a destructor in datatype '{1}'", updateName, dt.Name);
+          } else {
+            var destructor = (DatatypeDestructor)member;
+            var intersection = new List<DatatypeCtor>(candidateResultCtors.Intersect(destructor.EnclosingCtors));
+            if (intersection.Count == 0) {
+              ReportError(updateToken,
+                "updated datatype members must belong to the same constructor (unlike the previously mentioned destructors, '{0}' does not belong to {1})",
+                updateName, DatatypeDestructor.PrintableCtorNameList(candidateResultCtors, "or"));
+            } else {
+              candidateResultCtors = intersection;
+              if (destructor.IsGhost) {
+                rhsBindings.Add(updateName, new Tuple<BoundVar, IdentifierExpr, Expression>(null, null, updateValue));
+              } else {
+                var xName = resolver.FreshTempVarName($"dt_update#{updateName}#", opts.codeContext);
+                var xVar = new BoundVar(new AutoGeneratedToken(tok), xName, new InferredTypeProxy());
+                var x = new IdentifierExpr(new AutoGeneratedToken(tok), xVar);
+                rhsBindings.Add(updateName, new Tuple<BoundVar, IdentifierExpr, Expression>(xVar, x, updateValue));
+              }
+            }
+          }
+        }
+      }
+      if (candidateResultCtors.Count == 0) {
+        return null;
+      }
+
+      // Check that every candidate result constructor has given a name to all of its parameters.
+      var hasError = false;
+      foreach (var ctor in candidateResultCtors) {
+        if (ctor.Formals.Exists(f => !f.HasName)) {
+          ReportError(tok, $"candidate result constructor '{ctor.Name}' has an anonymous parameter" +
+                           " (to use in datatype update expression, name all the parameters of the candidate result constructors)");
+          hasError = true;
+        }
+      }
+      if (hasError) {
+        return null;
+      }
+
+      // The legal source constructors are the candidate result constructors. (Yep, two names for the same thing.)
+      legalSourceConstructors = candidateResultCtors;
+      Contract.Assert(1 <= legalSourceConstructors.Count);
+
+      return DesugarDatatypeUpdate(tok, root, dt, opts, rootPreType, candidateResultCtors, rhsBindings);
+    }
+
+    /// <summary>
+    /// Rewrite the datatype update root.(x := X, y := Y, ...) into a resolved expression:
+    ///     var d := root;
+    ///     var x := X;  // EXCEPT: don't do this for ghost fields (see below)
+    ///     var y := Y;
+    ///     ...
+    ///     if d.CandidateResultConstructor0 then
+    ///       CandidateResultConstructor0(x, y, ..., d.f0, d.f1, ...)  // for a ghost field x, use the expression X directly
+    ///     else if d.CandidateResultConstructor1 then
+    ///       CandidateResultConstructor0(x, y, ..., d.g0, d.g1, ...)
+    ///     ...
+    ///     else
+    ///       CandidateResultConstructorN(x, y, ..., d.k0, d.k1, ...)
+    ///
+    /// </summary>
+    private Expression DesugarDatatypeUpdate(IToken tok, Expression root, DatatypeDecl dt, Resolver.ResolveOpts opts, DPreType rootPreType,
+      List<DatatypeCtor> candidateResultCtors, Dictionary<string, Tuple<BoundVar, IdentifierExpr, Expression>> rhsBindings) {
+      Contract.Requires(1 <= candidateResultCtors.Count);
+
+      // Create a unique name for d', the variable we introduce in the let expression
+      var dName = resolver.FreshTempVarName("dt_update_tmp#", opts.codeContext);
+      var dVar = new BoundVar(new AutoGeneratedToken(tok), dName, new InferredTypeProxy());
+      dVar.PreType = rootPreType;
+      var d = new IdentifierExpr(new AutoGeneratedToken(tok), dVar);
+      Expression body = null;
+      candidateResultCtors.Reverse();
+      foreach (var crc in candidateResultCtors) {
+        // Build the arguments to the datatype constructor, using the updated value in the appropriate slot
+        var actualBindings = new List<ActualBinding>();
+        foreach (var f in crc.Formals) {
+          Expression ctorArg;
+          if (rhsBindings.TryGetValue(f.Name, out var info)) {
+            ctorArg = info.Item2 ?? info.Item3;
+          } else {
+            ctorArg = new ExprDotName(tok, d, f.Name, null);
+          }
+          var bindingName = new Token(tok.line, tok.col) {
+            filename = tok.filename,
+            val = f.Name
+          };
+          actualBindings.Add(new ActualBinding(bindingName, ctorArg));
+        }
+        var ctorCall = new DatatypeValue(tok, crc.EnclosingDatatype.Name, crc.Name, actualBindings);
+        if (body == null) {
+          body = ctorCall;
+        } else {
+          // body := if d.crc? then ctor_call else body
+          var guard = new ExprDotName(tok, d, crc.QueryField.Name, null);
+          body = new ITEExpr(tok, false, guard, ctorCall, body);
+        }
+      }
+      Contract.Assert(body != null); // because there was at least one element in candidateResultCtors
+
+      // Wrap the let bindings around body
+      var rewrite = body;
+      foreach (var entry in rhsBindings) {
+        if (entry.Value.Item1 != null) {
+          var lhs = new CasePattern<BoundVar>(tok, entry.Value.Item1);
+          rewrite = new LetExpr(tok, new List<CasePattern<BoundVar>>() { lhs }, new List<Expression>() { entry.Value.Item3 }, rewrite, true);
+        }
+      }
+      var dVarPat = new CasePattern<BoundVar>(tok, dVar);
+      rewrite = new LetExpr(tok, new List<CasePattern<BoundVar>>() { dVarPat }, new List<Expression>() { root }, rewrite, true);
+      Contract.Assert(rewrite != null);
+      ResolveExpression(rewrite, opts);
+      return rewrite;
     }
 
     void ResolveCasePattern<VT>(CasePattern<VT> pat, PreType sourcePreType, ICodeContext context) where VT : IVariable {

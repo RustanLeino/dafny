@@ -45,7 +45,7 @@ namespace Microsoft.Dafny {
 
     FreshIdGenerator defaultTempVarIdGenerator;
 
-    string FreshTempVarName(string prefix, ICodeContext context) {
+    public string FreshTempVarName(string prefix, ICodeContext context) {
       var decl = context as Declaration;
       if (decl != null) {
         return decl.IdGenerator.FreshId(prefix);
@@ -14854,7 +14854,7 @@ namespace Microsoft.Dafny {
           if (let != null) {
             e.ResolvedExpression = let;
             e.LegalSourceConstructors = legalSourceConstructors;
-            expr.Type = ty;
+            expr.Type = let.Type;
           }
         }
 
