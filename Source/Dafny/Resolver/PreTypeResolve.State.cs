@@ -94,9 +94,11 @@ namespace Microsoft.Dafny {
       PrintList("Comparable constraints", comparableConstraints, cc => {
         return $"{cc.A} ~~ {cc.B}";
       });
+#if IS_THERE_A_GOOD_WAY_TO_PRINT_GUARDED_CONSTRAINTS
       PrintList("Guarded constraints", guardedConstraints, gc => {
         return gc.Kind + Util.Comma("", gc.Arguments, arg => $" {arg}");
       });
+#endif
       PrintList("Default-type advice", defaultAdvice, advice => {
         return $"{advice.PreType} ~-~-> {advice.WhatString}";
       });
@@ -611,31 +613,11 @@ namespace Microsoft.Dafny {
 
     // ---------------------------------------- Guarded constraints ----------------------------------------
 
-    class GuardedConstraint : PreTypeStateWithErrorMessage {
-      public readonly string Kind;
-      public readonly PreType[] Arguments;
+    private List<Func<bool>> guardedConstraints = new();
 
-      public override string ErrorMessage() {
-        return string.Format(ErrorFormatString, Arguments);
-      }
-
-      public GuardedConstraint(string kind, IToken tok, string errorFormatString, params PreType[] arguments)
-        : base(tok, errorFormatString) {
-        Contract.Requires(kind != null);
-        Contract.Requires(tok != null);
-        Contract.Requires(errorFormatString != null);
-        Kind = kind;
-        Arguments = arguments;
-      }
-    }
-
-    private List<GuardedConstraint> guardedConstraints = new();
-
-    void AddGuardedConstraint(string kind, IToken tok, string errorFormatString, params PreType[] arguments) {
-      Contract.Requires(kind != null);
-      Contract.Requires(tok != null);
-      Contract.Requires(errorFormatString != null);
-      guardedConstraints.Add(new GuardedConstraint(kind, tok, errorFormatString, arguments));
+    void AddGuardedConstraint(Func<bool> predicate) {
+      Contract.Requires(predicate != null);
+      guardedConstraints.Add(predicate);
     }
 
     bool ApplyGuardedConstraints() {
@@ -647,199 +629,7 @@ namespace Microsoft.Dafny {
       guardedConstraints = new();
       var anythingChanged = false;
       foreach (var constraint in constraints) {
-        var a0 = 0 < constraint.Arguments.Length ? constraint.Arguments[0].Normalize() : null;
-        var a1 = 1 < constraint.Arguments.Length ? constraint.Arguments[1].Normalize() : null;
-        var used = false;
-        switch (constraint.Kind) {
-          case "Minusable": {
-            // For "Minusable left right", the following cases are allowed:
-            // Uniform cases:
-            //   - int int
-            //   - real real
-            //   - bv bv
-            //   - ORDINAL ORDINAL
-            //   - char char
-            //   - set<T> set<V>
-            //   - iset<T> iset<V>
-            //   - multiset<T> multiset<T>
-            // Non-uniform cases:
-            //   - map<T, U> set<V>
-            //   - imap<T, U> set<V>
-            //
-            // The tests below distinguish between the uniform and non-uniform cases, but otherwise may allow some cases
-            // that are not included above. The instigator of the "Minusable" guard will arrange to confirm that only the
-            // expected types are allowed.
-            var left = a0 as DPreType;
-            var right = a1 as DPreType;
-            var familyDeclNameLeft = left == null ? null : AncestorDecl(left.Decl).Name;
-            var familyDeclNameRight = right == null ? null : AncestorDecl(right.Decl).Name;
-            if (familyDeclNameLeft == "map" || familyDeclNameLeft == "imap") {
-              Contract.Assert(left.Arguments.Count == 2);
-              var st = new DPreType(BuiltInTypeDecl("set"), new List<PreType>() { left.Arguments[0] });
-              DebugPrint($"    DEBUG: guard applies: Minusable {a0} {a1}, converting to {st} :> {a1}");
-              AddSubtypeConstraint(st, a1, constraint.tok,
-                "map subtraction expects right-hand operand to have type {0} (instead got {1})");
-              used = true;
-            } else if (familyDeclNameLeft != null || (familyDeclNameRight != null && familyDeclNameRight != "set")) {
-              DebugPrint($"    DEBUG: guard applies: Minusable {a0} {a1}, converting to {a0} :> {a1}");
-              AddSubtypeConstraint(a0, a1, constraint.tok,
-                "type of right argument to - ({0}) must agree with the result type ({1})");
-              used = true;
-            }
-            break;
-          }
-          case "Innable": {
-            // For "Innable x s", if s is known, then:
-            // if s == c<a> or s == c<a, b> where c is a collection type, then a :> x, else error.
-            Contract.Assert(constraint.Arguments.Length == 2);
-            var coll = a1.UrAncestor(this).AsCollectionType();
-            if (coll != null) {
-              DebugPrint($"    DEBUG: guard applies: Innable {a0} {a1}");
-              AddSubtypeConstraint(coll.Arguments[0], a0, constraint.tok,
-                "expecting element type to be assignable to {0} (got {1})");
-              used = true;
-            } else if (a1 is DPreType) {
-              // type head is determined and it isn't a collection type
-              ReportError(constraint.tok, constraint.ErrorMessage());
-              used = true;
-            }
-            break;
-          }
-          case "Lt": {
-            var left = a0 as DPreType;
-            var right = a1 as DPreType;
-            if (left != null && (left.Decl is IndDatatypeDecl || left.Decl is TypeParameter)) {
-              AddConfirmation("RankOrderable", a1, constraint.tok,
-                $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
-              used = true;
-            } else if (right != null && right.Decl is IndDatatypeDecl) {
-              AddConfirmation("RankOrderableOrTypeParameter", a0, constraint.tok,
-                $"arguments to rank comparison must be datatypes (got {{0}} and {a1})");
-              used = true;
-            } else if (left != null || right != null) {
-              var opString = constraint.ErrorFormatString;
-              var commonSupertype = CreatePreTypeProxy("common supertype of < operands");
-              ConstrainToCommonSupertype(commonSupertype, a0, a1, constraint.tok, opString);
-              AddConfirmation("Orderable_Lt", a0, constraint.tok,
-                "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, a sequence type, or a set-like type (instead got {0})");
-              used = true;
-            }
-            break;
-          }
-          case "Gt": {
-            var left = a0 as DPreType;
-            var right = a1 as DPreType;
-            if (left != null && left.Decl is IndDatatypeDecl) {
-              AddConfirmation("RankOrderableOrTypeParameter", a1, constraint.tok,
-                $"arguments to rank comparison must be datatypes (got {a0} and {{0}})");
-              used = true;
-            } else if (right != null && (right.Decl is IndDatatypeDecl || right.Decl is TypeParameter)) {
-              AddConfirmation("RankOrderable", a0, constraint.tok,
-                $"arguments to rank comparison must be datatypes (got {{0}} and {a1})");
-              used = true;
-            } else if (left != null || right != null) {
-              var opString = constraint.ErrorFormatString;
-              var commonSupertype = CreatePreTypeProxy("common supertype of < operands");
-              ConstrainToCommonSupertype(commonSupertype, a0, a1, constraint.tok, opString);
-              AddConfirmation("Orderable_Gt", a0, constraint.tok,
-                "arguments to " + opString + " must be of a numeric type, bitvector type, ORDINAL, char, or a set-like type (instead got {0})");
-              used = true;
-            }
-            break;
-          }
-          case "Indexable": {
-            // Indexable sourcePreType indexPreType resultPreType
-            // where indexPreType and resultPreType are TokenPreTypeProxy
-            Contract.Assert(constraint.Arguments.Length == 3);
-            var sourcePreType = a0 as DPreType;
-            var a2 = constraint.Arguments[2].Normalize();
-            var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
-            var a2token = ((TokenPreTypeProxy)constraint.Arguments[2]).tok;
-            if (sourcePreType != null) {
-              var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
-              switch (familyDeclName) {
-                case "array":
-                case "seq":
-                  ConstrainToIntFamily(a1, a1token, "index expression must have an integer type (got {0})");
-                  AddSubtypeConstraint(a2, sourcePreType.Arguments[0], a2token, "type does not agree with element type {1} (got {0})");
-                  break;
-                case "multiset":
-                  AddSubtypeConstraint(sourcePreType.Arguments[0], a1, a1token, "type does not agree with element type {0} (got {1})");
-                  ConstrainToIntFamily(a2, a2token, "multiset multiplicity must have an integer type (got {0})");
-                  break;
-                case "map":
-                case "imap":
-                  AddSubtypeConstraint(sourcePreType.Arguments[0], a1, a1token, "type does not agree with domain type {0} (got {1})");
-                  AddSubtypeConstraint(a2, sourcePreType.Arguments[1], a2token, "type does not agree with value type of {1} (got {0})");
-                  break;
-                default:
-                  ReportError(constraint.tok, constraint.ErrorMessage());
-                  break;
-              }
-              used = true;
-            }
-            break;
-          }
-          case "MultiIndexable": {
-            // MultiIndexable sourcePreType resultElementPreType
-            // where resultPreType is TokenPreTypeProxy
-            var sourcePreType = a0 as DPreType;
-            var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
-            if (sourcePreType != null) {
-              var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
-              switch (familyDeclName) {
-                case "seq":
-                case "array":
-                  AddSubtypeConstraint(a1, sourcePreType.Arguments[0], a1token, "type does not agree with element type {1} (got {0})");
-                  break;
-              default:
-                ReportError(constraint.tok, constraint.ErrorMessage());
-                break;
-              }
-              used = true;
-            }
-            break;
-          }
-          case "SeqUpdatable": {
-            // SeqUpdatable sourcePreType indexPreType valuePreType
-            // where indexPreType and valuePreType are TokenPreTypeProxy
-            Contract.Assert(constraint.Arguments.Length == 3);
-            var sourcePreType = a0 as DPreType;
-            var a2 = constraint.Arguments[2].Normalize();
-            var ancestorDecl = AncestorDecl(sourcePreType.Decl);
-            var familyDeclName = sourcePreType == null ? null : ancestorDecl.Name;
-            var a1token = ((TokenPreTypeProxy)constraint.Arguments[1]).tok;
-            var a2token = ((TokenPreTypeProxy)constraint.Arguments[2]).tok;
-            if (familyDeclName == "seq") {
-              var elementPreType = sourcePreType.Arguments[0];
-              ConstrainToIntFamily(a1, a1token, "sequence update requires integer- or bitvector-based index (got {0})");
-              AddSubtypeConstraint(elementPreType, a2, a2token,
-                "sequence update requires the value to have the element type of the sequence (got {0})");
-              used = true;
-            } else if (familyDeclName == "map" || familyDeclName == "imap") {
-              var domainPreType = sourcePreType.Arguments[0];
-              var rangePreType = sourcePreType.Arguments[1];
-              AddSubtypeConstraint(domainPreType, a1, a1token,
-                familyDeclName + " update requires domain element to be of type {0} (got {1})");
-              AddSubtypeConstraint(rangePreType, a2, a2token,
-                familyDeclName + " update requires the value to have the range type {0} (got {1})");
-              used = true;
-            } else if (familyDeclName == "multiset") {
-              var elementPreType = sourcePreType.Arguments[0];
-              AddSubtypeConstraint(elementPreType, a1, a1token, "multiset update requires domain element to be of type {0} (got {1})");
-              ConstrainToIntFamily(a2, a2token, "multiset update requires integer-based numeric value (got {0})");
-              used = true;
-            } else if (familyDeclName != null) {
-              ReportError(constraint.tok, constraint.ErrorMessage());
-              used = true;
-            }
-            break;
-          }
-          default:
-            Contract.Assert(false); // unexpected case
-            throw new cce.UnreachableException();
-        }
-        if (used) {
+        if (constraint()) {
           anythingChanged = true;
         } else {
           guardedConstraints.Add(constraint);

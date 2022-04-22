@@ -1271,7 +1271,7 @@ namespace Microsoft.Dafny {
       // first, resolve the guards
       foreach (var alternative in alternatives) {
         ResolveExpression(alternative.Guard, new Resolver.ResolveOpts(codeContext, true));
-        ConstrainResultToBoolFamily(alternative.Guard, "if/while case", "condition is expected to be of type bool, but is {0}");
+        alternative.Guard.PreType = ConstrainResultToBoolFamily(alternative.Guard.tok, "if/while case", "condition is expected to be of type bool, but is {0}");
       }
 
       if (loopToCatchBreaks != null) {

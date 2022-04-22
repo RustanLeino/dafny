@@ -173,16 +173,6 @@ namespace Microsoft.Dafny {
     }
   }
 
-  public class TokenPreTypeProxy : PreTypeProxy {
-    public readonly Bpl.IToken tok;
-
-    public TokenPreTypeProxy(Bpl.IToken tok, PreType pt, int uniqueId)
-      : base(uniqueId) {
-      this.tok = tok;
-      Set(pt);
-    }
-  }
-
   public class DPreType : PreType {
     public readonly TopLevelDecl Decl;
     public readonly List<PreType> Arguments;
