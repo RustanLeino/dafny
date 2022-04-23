@@ -5,6 +5,7 @@
 //
 //-----------------------------------------------------------------------------
 
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using Bpl = Microsoft.Boogie;
@@ -257,4 +258,22 @@ namespace Microsoft.Dafny {
       return newArguments == null ? this : new DPreType(Decl, newArguments);
     }
   }
+
+  /// <summary>
+  /// A PreTypePlaceholder is used to fill in the .PreType field of an AST expression node that does not
+  /// correspond to an expression. In particular, such an AST node can refer to a module or a type (and,
+  /// in a legal program, is syntactically followed by ".X", which will make it an expression).
+  /// </summary>
+  public abstract class PreTypePlaceholder : PreType {
+    public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {
+      throw new NotImplementedException();
+    }
+  }
+
+  public class PreTypePlaceholderModule : PreTypePlaceholder {
+  }
+
+  public class PreTypePlaceholderType : PreTypePlaceholder {
+  }
+
 }

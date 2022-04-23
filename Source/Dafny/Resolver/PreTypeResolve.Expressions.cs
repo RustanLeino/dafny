@@ -151,27 +151,23 @@ namespace Microsoft.Dafny {
         var e = (NameSegment)expr;
         ResolveNameSegment(e, true, null, opts, false);
 
-        if (e.Type is Resolver_IdentifierExpr.ResolverType_Module) {
+        if (e.PreType is PreTypePlaceholderModule) {
           ReportError(e.tok, "name of module ({0}) is used as a variable", e.Name);
           e.ResetTypeAssignment(); // the rest of type checking assumes actual types
-          e.PreType = CreatePreTypeProxy("Resolver_IdentifierExpr.ResolverType_Module"); // the rest of type checking assumes actual types
-        } else if (e.Type is Resolver_IdentifierExpr.ResolverType_Type) {
+        } else if (e.PreType is PreTypePlaceholderType) {
           ReportError(e.tok, "name of type ({0}) is used as a variable", e.Name);
           e.ResetTypeAssignment(); // the rest of type checking assumes actual types
-          e.PreType = CreatePreTypeProxy("Resolver_IdentifierExpr.ResolverType_Type"); // the rest of type checking assumes actual types
         }
 
       } else if (expr is ExprDotName) {
         var e = (ExprDotName)expr;
         ResolveDotSuffix(e, true, null, opts, false);
-        if (e.Type is Resolver_IdentifierExpr.ResolverType_Module) {
+        if (e.PreType is PreTypePlaceholderModule) {
           ReportError(e.tok, "name of module ({0}) is used as a variable", e.SuffixName);
           e.ResetTypeAssignment();  // the rest of type checking assumes actual types
-          e.PreType = CreatePreTypeProxy("Resolver_IdentifierExpr.ResolverType_Module"); // the rest of type checking assumes actual types
-        } else if (e.Type is Resolver_IdentifierExpr.ResolverType_Type) {
+        } else if (e.PreType is PreTypePlaceholderType) {
           ReportError(e.tok, "name of type ({0}) is used as a variable", e.SuffixName);
           e.ResetTypeAssignment();  // the rest of type checking assumes actual types
-          e.PreType = CreatePreTypeProxy("Resolver_IdentifierExpr.ResolverType_Type"); // the rest of type checking assumes actual types
         }
 
       } else if (expr is ApplySuffix applySuffix) {
@@ -1266,7 +1262,7 @@ namespace Microsoft.Dafny {
 
       var name = opts.isReveal ? "reveal_" + expr.SuffixName : expr.SuffixName;
       var lhs = expr.Lhs.Resolved;
-      if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Module) {
+      if (lhs != null && lhs.PreType is PreTypePlaceholderModule) {
         var ri = (Resolver_IdentifierExpr)lhs;
         var sig = ((ModuleDecl)ri.Decl).AccessibleSignature(resolver.useCompileSignatures);
         sig = Resolver.GetSignatureExt(sig, resolver.useCompileSignatures);
@@ -1323,8 +1319,7 @@ namespace Microsoft.Dafny {
           ReportError(expr.tok, "unresolved identifier: {0}", name);
         }
 
-      } else if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Type) {
-#if SOON
+      } else if (lhs != null && lhs.PreType is PreTypePlaceholderType) {
         var ri = (Resolver_IdentifierExpr)lhs;
         // ----- 3. Look up name in type
         // expand any synonyms
@@ -1332,14 +1327,12 @@ namespace Microsoft.Dafny {
         if (ty.IsDatatype) {
           // ----- LHS is a datatype
           var dt = ty.AsDatatype;
-          Dictionary<string, DatatypeCtor> members;
-          DatatypeCtor ctor;
-          if (resolver.datatypeCtors.TryGetValue(dt, out members) && members.TryGetValue(name, out ctor)) {
+          if (resolver.datatypeCtors.TryGetValue(dt, out var members) && members.TryGetValue(name, out var ctor)) {
             if (expr.OptTypeArguments != null) {
-              ReportError(expr.tok, "datatype constructor does not take any type parameters ('{0}')", name);
+              ReportError(expr.tok, $"datatype constructor does not take any type parameters ('{name}')");
             }
             var rr = new DatatypeValue(expr.tok, ctor.EnclosingDatatype.Name, name, args ?? new List<ActualBinding>());
-            ResolveDatatypeValue(opts, rr, ctor.EnclosingDatatype, ty);
+            ResolveDatatypeValue(opts, rr, ctor.EnclosingDatatype, (DPreType)Type2PreType(ty));
             if (args == null) {
               r = rr;
             } else {
@@ -1351,23 +1344,22 @@ namespace Microsoft.Dafny {
         var cd = r == null ? ty.AsTopLevelTypeWithMembersBypassInternalSynonym : null;
         if (cd != null) {
           // ----- LHS is a type with members
-          Dictionary<string, MemberDecl> members;
-          if (resolver.classMembers.TryGetValue(cd, out members) && members.TryGetValue(name, out member)) {
+          if (resolver.classMembers.TryGetValue(cd, out var members) && members.TryGetValue(name, out var member)) {
             if (!resolver.VisibleInScope(member)) {
-              ReportError(expr.tok, "member '{0}' has not been imported in this scope and cannot be accessed here", name);
+              ReportError(expr.tok, $"member '{name}' has not been imported in this scope and cannot be accessed here");
             }
             if (!member.IsStatic) {
-              ReportError(expr.tok, "accessing member '{0}' requires an instance expression", name); //TODO Unify with similar error messages
+              ReportError(expr.tok, $"accessing member '{name}' requires an instance expression"); //TODO Unify with similar error messages
               // nevertheless, continue creating an expression that approximates a correct one
             }
             var receiver = new StaticReceiverExpr(expr.tok, (UserDefinedType)ty.NormalizeExpand(), (TopLevelDeclWithMembers)member.EnclosingClass, false);
+            receiver.PreType = Type2PreType(receiver.Type);
             r = ResolveExprDotCall(expr.tok, receiver, null, member, args, expr.OptTypeArguments, opts, allowMethodCall);
           }
         }
         if (r == null) {
           ReportError(expr.tok, "member '{0}' does not exist in {2} '{1}'", name, ri.Decl.Name, ri.Decl.WhatKind);
         }
-#endif
 
       } else if (lhs != null) {
         // ----- 4. Look up name in the type of the Lhs
@@ -1561,11 +1553,8 @@ namespace Microsoft.Dafny {
             var formals = new List<Formal>();
             for (var i = 0; i < lhsPreType.Arguments.Count; i++) {
               var argType = lhsPreType.Arguments[i];
-#if SOON
-              var formal = new ImplicitFormal(e.tok, "_#p" + i, argType, true, false);
-#else
-              var formal = new ImplicitFormal(e.tok, "_#p" + i, Type.Int /*BOGUS!*/, true, false);
-#endif
+              var formal = new ImplicitFormal(e.tok, "_#p" + i, new InferredTypeProxy(), true, false);
+              formal.PreType = argType;
               formals.Add(formal);
             }
             ResolveActualParameters(e.Bindings, formals, e.tok, lhsPreType, opts, new Dictionary<TypeParameter, PreType>(), null);
@@ -1575,9 +1564,9 @@ namespace Microsoft.Dafny {
         } else {
           // e.Lhs is used as if it were a function value, but it isn't
           var lhs = e.Lhs.Resolved;
-          if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Module) { // TODO
+          if (lhs != null && lhs.PreType is PreTypePlaceholderModule) {
             ReportError(e.tok, "name of module ({0}) is used as a function", ((Resolver_IdentifierExpr)lhs).Decl.Name);
-          } else if (lhs != null && lhs.Type is Resolver_IdentifierExpr.ResolverType_Type) { // TODO
+          } else if (lhs != null && lhs.PreType is PreTypePlaceholderType) {
             var ri = (Resolver_IdentifierExpr)lhs;
             ReportError(e.tok, "name of {0} ({1}) is used as a function", ri.Decl.WhatKind, ri.Decl.Name);
           } else {
