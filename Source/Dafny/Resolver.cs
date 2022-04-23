@@ -243,11 +243,18 @@ namespace Microsoft.Dafny {
     private List<IRewriter> rewriters;
     private RefinementTransformer refinementTransformer;
 
+#if PRETYPE
+    readonly PreTypeResolver preTypeResolver;
+#endif
+
     public Resolver(Program prog) {
       Contract.Requires(prog != null);
 
       builtIns = prog.BuiltIns;
       reporter = prog.reporter;
+#if PRETYPE
+      preTypeResolver = new PreTypeResolver(this);
+#endif
 
       // Map#Items relies on the two destructors for 2-tuples
       builtIns.TupleType(Token.NoToken, 2, true);
@@ -2643,7 +2650,6 @@ namespace Microsoft.Dafny {
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
 
 #if PRETYPE
-      var preTypeResolver = new PreTypeResolver(this);
       preTypeResolver.ResolveDeclarations(declarations);
 #endif
       ResolvePass0(declarations);
@@ -10114,12 +10120,12 @@ namespace Microsoft.Dafny {
       var option = f.TypeArgs.Count == 0 ? new ResolveTypeOption(f) : new ResolveTypeOption(ResolveTypeOptionEnum.AllowPrefix);
       foreach (Formal p in f.Formals) {
         ScopePushAndReport(scope, p, "parameter");
-        ResolveType(p.tok, p.Type, f, option, f.TypeArgs);
+        ResolveType(p, f, option, f.TypeArgs);
         AddTypeDependencyEdges(f, p.Type);
       }
       if (f.Result != null) {
         ScopePushAndReport(scope, f.Result, "parameter/return");
-        ResolveType(f.Result.tok, f.Result.Type, f, option, f.TypeArgs);
+        ResolveType(f.Result, f, option, f.TypeArgs);
       } else {
         ResolveType(f.tok, f.ResultType, f, option, f.TypeArgs);
       }
@@ -10276,13 +10282,13 @@ namespace Microsoft.Dafny {
       // resolve in-parameters
       foreach (Formal p in m.Ins) {
         ScopePushAndReport(scope, p, "parameter");
-        ResolveType(p.tok, p.Type, m, option, m.TypeArgs);
+        ResolveType(p, m, option, m.TypeArgs);
         AddTypeDependencyEdges(m, p.Type);
       }
       // resolve out-parameters
       foreach (Formal p in m.Outs) {
         ScopePushAndReport(scope, p, "parameter");
-        ResolveType(p.tok, p.Type, m, option, m.TypeArgs);
+        ResolveType(p, m, option, m.TypeArgs);
         AddTypeDependencyEdges(m, p.Type);
       }
       scope.PopMarker();
@@ -10420,7 +10426,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(ctor.EnclosingDatatype != null);
       Contract.Requires(dtTypeArguments != null);
       foreach (Formal p in ctor.Formals) {
-        ResolveType(p.tok, p.Type, ctor.EnclosingDatatype, ResolveTypeOptionEnum.AllowPrefix, dtTypeArguments);
+        ResolveType(p, ctor.EnclosingDatatype, new ResolveTypeOption(ResolveTypeOptionEnum.AllowPrefix), dtTypeArguments);
       }
     }
 
@@ -10438,10 +10444,10 @@ namespace Microsoft.Dafny {
       // resolve the types of the parameters
       var prevErrorCount = reporter.Count(ErrorLevel.Error);
       foreach (var p in iter.Ins) {
-        ResolveType(p.tok, p.Type, iter, option, iter.TypeArgs);
+        ResolveType(p, iter, option, iter.TypeArgs);
       }
       foreach (var p in iter.Outs) {
-        ResolveType(p.tok, p.Type, iter, option, iter.TypeArgs);
+        ResolveType(p, iter, option, iter.TypeArgs);
         if (!p.Type.KnownToHaveToAValue(p.IsGhost)) {
           reporter.Error(MessageSource.Resolver, p.tok, "type of yield-parameter must support auto-initialization (got '{0}')", p.Type);
         }
@@ -10772,6 +10778,15 @@ namespace Microsoft.Dafny {
       Contract.Requires((option.Opt == ResolveTypeOptionEnum.DontInfer || option.Opt == ResolveTypeOptionEnum.InferTypeProxies) == (defaultTypeArguments == null));
       var r = ResolveTypeLenient(tok, type, context, option, defaultTypeArguments, false);
       Contract.Assert(r == null);
+    }
+
+    public void ResolveType(Formal formal, ICodeContext context, ResolveTypeOption option, List<TypeParameter> defaultTypeArguments) {
+      Contract.Requires(formal != null);
+      Contract.Requires(context != null);
+      Contract.Requires(option != null);
+      Contract.Requires((option.Opt == ResolveTypeOptionEnum.DontInfer || option.Opt == ResolveTypeOptionEnum.InferTypeProxies) == (defaultTypeArguments == null));
+      ResolveType(formal.tok, formal.Type, context, option, defaultTypeArguments);
+      formal.PreType = preTypeResolver.Type2PreType(formal.Type);
     }
 
     public class ResolveTypeReturn {
