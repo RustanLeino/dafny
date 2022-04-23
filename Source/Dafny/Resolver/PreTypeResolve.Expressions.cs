@@ -1118,11 +1118,10 @@ namespace Microsoft.Dafny {
           r = resolver.CreateResolver_IdentifierExpr(expr.tok, name, expr.OptTypeArguments, decl);
         }
 
-#if SOON
       } else if (resolver.moduleInfo.StaticMembers.TryGetValue(name, out member)) {
         // ----- 4. static member of the enclosing module
         Contract.Assert(member.IsStatic); // moduleInfo.StaticMembers is supposed to contain only static members of the module's implicit class _default
-        if (member is AmbiguousMemberDecl ambiguousMember) {
+        if (member is Resolver.AmbiguousMemberDecl ambiguousMember) {
           if (complain) {
             ReportError(expr.tok, "The name {0} ambiguously refers to a static member in one of the modules {1} (try qualifying the member name with the module name)", expr.Name, ambiguousMember.ModuleNames());
           } else {
@@ -1131,6 +1130,7 @@ namespace Microsoft.Dafny {
           }
         } else {
           var receiver = new StaticReceiverExpr(expr.tok, (ClassDecl)member.EnclosingClass, true);
+          receiver.PreType = Type2PreType(receiver.Type);
           r = ResolveExprDotCall(expr.tok, receiver, null, member, args, expr.OptTypeArguments, opts, allowMethodCall);
         }
 
@@ -1140,7 +1140,6 @@ namespace Microsoft.Dafny {
           return null;
         }
 
-#endif
       } else {
         // ----- None of the above
         if (complain) {
@@ -1281,7 +1280,6 @@ namespace Microsoft.Dafny {
             if (expr.OptTypeArguments != null) {
               ReportError(expr.tok, "datatype constructor does not take any type parameters ('{0}')", name);
             }
-#if SOON
             var rr = new DatatypeValue(expr.tok, pair.Item1.EnclosingDatatype.Name, name, args ?? new List<ActualBinding>());
             ResolveDatatypeValue(opts, rr, pair.Item1.EnclosingDatatype, null);
 
@@ -1291,7 +1289,6 @@ namespace Microsoft.Dafny {
               r = rr;  // this doesn't really matter, since we're returning an "rWithArgs" (but if would have been proper to have returned the ctor as a lambda)
               rWithArgs = rr;
             }
-#endif
           }
         } else if (sig.TopLevels.TryGetValue(name, out var decl)) {
           // ----- 1. Member of the specified module
