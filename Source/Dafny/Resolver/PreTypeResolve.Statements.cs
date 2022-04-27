@@ -400,7 +400,7 @@ namespace Microsoft.Dafny {
         var s = (IfStmt)stmt;
         if (s.Guard != null) {
           ResolveExpression(s.Guard, new Resolver.ResolveOpts(codeContext, true));
-          s.Guard.PreType = ConstrainResultToBoolFamily(s.Guard.tok, "if statement", "condition is expected to be of type bool, but is {0}");
+          ConstrainTypeExprBool(s.Guard, "if statement", "condition is expected to be of type bool, but is {0}");
         }
 
         scope.PushMarker();
