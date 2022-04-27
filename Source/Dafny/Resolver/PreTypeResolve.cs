@@ -422,8 +422,7 @@ namespace Microsoft.Dafny {
         var prevErrCnt = ErrorCount;
         var codeContext = new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost);
         ResolveExpression(dd.Witness, new Resolver.ResolveOpts(codeContext, false));
-        ConstrainSubtypeRelation(dd.Var.Type, dd.Witness.Type, dd.Witness, "witness expression must have type '{0}' (got '{1}')", dd.Var.Type,
-          dd.Witness.Type);
+        AddSubtypeConstraint(dd.Var.PreType, dd.Witness.PreType, dd.Witness.tok, "witness expression must have type '{0}' (got '{1}')");
         SolveAllTypeConstraints($"{dd.WhatKind} '{dd.Name}' witness");
       }
       
@@ -541,7 +540,7 @@ namespace Microsoft.Dafny {
         // any type is fine, but associate this type with the corresponding _decreases<n> field
         var d = iter.DecreasesFields[i];
         // If the following type constraint does not hold, then: Bummer, there was a use--and a bad use--of the field before, so this won't be the best of error messages
-        ConstrainSubtypeRelation(d.Type, e.Type, e, "type of field {0} is {1}, but has been constrained elsewhere to be of type {2}", d.Name, e.Type, d.Type);
+        AddSubtypeConstraint(Type2PreType(d.Type), e.PreType, e.tok, "type of field '" + d.Name + "' is {1}, but has been constrained elsewhere to be of type {0}");
       }
       foreach (FrameExpression fe in iter.Reads.Expressions) {
         ResolveFrameExpression(fe, Resolver.FrameExpressionUse.Reads, iter);

@@ -886,6 +886,19 @@ namespace Microsoft.Dafny {
       return resultPreType;
     }
 
+    private void ConstrainTypeExprBool(Expression e, string msgFormat) {
+      Contract.Requires(e != null);
+      Contract.Requires(msgFormat != null);  // may have a {0} part
+      e.PreType = ConstrainResultToBoolFamily(e.tok, "<unspecified use>", msgFormat);
+    }
+
+    private void ConstrainTypeExprBool(Expression e, string proxyDescription, string msgFormat) {
+      Contract.Requires(e != null);
+      Contract.Requires(proxyDescription != null);
+      Contract.Requires(msgFormat != null);  // may have a {0} part
+      e.PreType = ConstrainResultToBoolFamily(e.tok, proxyDescription, msgFormat);
+    }
+
     private PreType ConstrainResultToBoolFamilyOperator(IToken tok, string opString) {
       var proxyDescription = $"result of {opString} operation";
       return ConstrainResultToBoolFamily(tok, proxyDescription, "type of " + opString + " must be a boolean (got {0})");

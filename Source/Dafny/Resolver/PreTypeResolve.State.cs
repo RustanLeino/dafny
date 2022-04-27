@@ -15,23 +15,6 @@ namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
     // ---------------------------------------- Pre-type inference state ----------------------------------------
 
-    private void ConstrainTypeExprBool(Expression e, string msg) {
-      Contract.Requires(e != null);
-      Contract.Requires(msg != null);  // expected to have a {0} part
-      ConstrainSubtypeRelation(Type.Bool, e.Type, e, msg, e.Type);
-    }
-
-    private void ConstrainSubtypeRelation(Type super, Type sub, Expression exprForToken, string msg, params object[] msgArgs) {
-      Contract.Requires(sub != null);
-      Contract.Requires(super != null);
-      Contract.Requires(exprForToken != null);
-      Contract.Requires(msg != null);
-      Contract.Requires(msgArgs != null);
-#if TODO
-      return ConstrainSubtypeRelation(super, sub, exprForToken.tok, msg, msgArgs);
-#endif
-    }
-
     /// <summary>
     /// Solves or simplifies as many type constraints as possible.
     /// If "allowDecisions" is "false", then no decisions, only determined inferences, are made; this mode is
@@ -239,14 +222,6 @@ namespace Microsoft.Dafny {
       Contract.Requires(tok != null);
       Contract.Requires(errorFormatString != null);
       unnormalizedSubtypeConstraints.Add(new SubtypeConstraint(super, sub, tok, errorFormatString));
-    }
-
-    void AddAssignableConstraint(PreType lhs, PreType rhs, IToken tok, string errMsgFormat) {
-      Contract.Requires(lhs != null);
-      Contract.Requires(rhs != null);
-      Contract.Requires(tok != null);
-      Contract.Requires(errMsgFormat != null);
-      AddSubtypeConstraint(lhs, rhs, tok, errMsgFormat);
     }
 
     bool ApplySubtypeConstraints() {

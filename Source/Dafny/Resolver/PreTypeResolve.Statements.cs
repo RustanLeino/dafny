@@ -396,12 +396,11 @@ namespace Microsoft.Dafny {
         ResolveBlockStatement(s, codeContext);
         scope.PopMarker();
 
-#if SOON
       } else if (stmt is IfStmt) {
-        IfStmt s = (IfStmt)stmt;
+        var s = (IfStmt)stmt;
         if (s.Guard != null) {
           ResolveExpression(s.Guard, new Resolver.ResolveOpts(codeContext, true));
-          ConstrainTypeExprBool(s.Guard, "condition is expected to be of type bool, but is {0}");
+          s.Guard.PreType = ConstrainResultToBoolFamily(s.Guard.tok, "if statement", "condition is expected to be of type bool, but is {0}");
         }
 
         scope.PushMarker();
@@ -421,7 +420,6 @@ namespace Microsoft.Dafny {
           ResolveStatement(s.Els, codeContext);
           dominatingStatementLabels.PopMarker();
         }
-#endif
 
       } else if (stmt is AlternativeStmt) {
         var s = (AlternativeStmt)stmt;
@@ -1251,9 +1249,8 @@ namespace Microsoft.Dafny {
         }
       } else if (lhs is SeqSelectExpr) {
         var ll = (SeqSelectExpr)lhs;
-        ConstrainSubtypeRelation(resolver.ResolvedArrayType(ll.Seq.tok, 1, new InferredTypeProxy(), codeContext, true),
-          ll.Seq.Type, ll.Seq,
-          "LHS of array assignment must denote an array element (found {0})", ll.Seq.Type);
+        var arrayType = resolver.ResolvedArrayType(ll.Seq.tok, 1, new InferredTypeProxy(), codeContext, true);
+        AddSubtypeConstraint(Type2PreType(arrayType), ll.Seq.PreType, ll.Seq.tok, "LHS of array assignment must denote an array element (found {1})");
         if (!ll.SelectOne) {
           ReportError(ll.Seq, "cannot assign to a range of array elements (try the 'forall' statement)");
         }
