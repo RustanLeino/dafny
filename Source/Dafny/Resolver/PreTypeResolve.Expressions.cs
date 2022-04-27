@@ -443,7 +443,7 @@ namespace Microsoft.Dafny {
           } else if (familyDeclName == "ORDINAL") {
             AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to an ORDINAL type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
           } else if (DPreType.IsReferenceTypeDecl(ancestorDecl)) {
-            AddAssignableConstraint(toPreType, e.E.PreType, expr.tok, "type cast to reference type '{0}' must be from an expression assignable to it (got '{1}')");
+            AddSubtypeConstraint(toPreType, e.E.PreType, expr.tok, "type cast to reference type '{0}' must be from an expression assignable to it (got '{1}')");
           } else {
             ReportError(expr, "type conversions are not supported to this type (got {0})", e.ToType);
           }
@@ -457,7 +457,7 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.E, opts);
         expr.PreType = ConstrainResultToBoolFamilyOperator(expr.tok, "is");
         resolver.ResolveType(e.tok, e.ToType, opts.codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null);
-        AddAssignableConstraint(Type2PreType(e.ToType), e.E.PreType, expr.tok, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
+        AddSubtypeConstraint(Type2PreType(e.ToType), e.E.PreType, expr.tok, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
 
       } else if (expr is BinaryExpr) {
         var e = (BinaryExpr)expr;
@@ -1367,7 +1367,7 @@ namespace Microsoft.Dafny {
         if (member != null) {
           if (!member.IsStatic) {
             var receiver = expr.Lhs;
-            AddAssignableConstraint(tentativeReceiverType, receiver.PreType, expr.tok, $"receiver type ({{1}}) does not have a member named '{name}'");
+            AddSubtypeConstraint(tentativeReceiverType, receiver.PreType, expr.tok, $"receiver type ({{1}}) does not have a member named '{name}'");
             r = ResolveExprDotCall(expr.tok, receiver, tentativeReceiverType, member, args, expr.OptTypeArguments, opts, allowMethodCall);
           } else {
 #if SOON
@@ -1806,7 +1806,7 @@ namespace Microsoft.Dafny {
 #if SOON
         EagerAddAssignableConstraint(v.Tok, v.Type, sourcePreType, "type of corresponding source/RHS ({1}) does not match type of bound variable ({0})");
 #else
-        AddAssignableConstraint(v.PreType, sourcePreType, v.Tok,
+        AddSubtypeConstraint(v.PreType, sourcePreType, v.Tok,
           "type of corresponding source/RHS ({1}) does not match type of bound variable ({0})");
 #endif
         pat.AssembleExprPreType(null);
@@ -1822,7 +1822,7 @@ namespace Microsoft.Dafny {
           dtd = ctor.EnclosingDatatype;
           sourceTypeArguments = dtd.TypeArgs.ConvertAll(tp => (PreType)CreatePreTypeProxy($"type parameter '{tp.Name}'"));
           var lhsPreType = new DPreType(dtd, sourceTypeArguments);
-          AddAssignableConstraint(lhsPreType, sourcePreType, pat.tok, $"type of RHS ({{0}}) does not match type of bound variable '{pat.Id}' ({{1}})");
+          AddSubtypeConstraint(lhsPreType, sourcePreType, pat.tok, $"type of RHS ({{0}}) does not match type of bound variable '{pat.Id}' ({{1}})");
         }
       }
       if (dtd == null) {

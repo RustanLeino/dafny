@@ -442,7 +442,7 @@ namespace Microsoft.Dafny {
         if (d != null) {
           allowMoreRequiredParameters = false;
           ResolveExpression(d, new Resolver.ResolveOpts(codeContext, codeContext is TwoStateFunction || codeContext is TwoStateLemma));
-          AddAssignableConstraint(Type2PreType(formal.Type), Type2PreType(d.Type), d.tok, "default-value expression (of type '{1}') is not assignable to formal (of type '{0}')");
+          AddSubtypeConstraint(Type2PreType(formal.Type), Type2PreType(d.Type), d.tok, "default-value expression (of type '{1}') is not assignable to formal (of type '{0}')");
           foreach (var v in Resolver.FreeVariables(d)) {
             dependencies.AddEdge(formal, v);
           }
@@ -675,7 +675,7 @@ namespace Microsoft.Dafny {
       if (f.Body != null) {
         var prevErrorCount = ErrorCount;
         ResolveExpression(f.Body, new Resolver.ResolveOpts(f, f is TwoStateFunction));
-        AddAssignableConstraint(Type2PreType(f.ResultType), f.Body.PreType, f.tok, "Function body type mismatch (expected {0}, got {1})");
+        AddSubtypeConstraint(Type2PreType(f.ResultType), f.Body.PreType, f.tok, "Function body type mismatch (expected {0}, got {1})");
         SolveAllTypeConstraints($"body of {f.WhatKind} '{f.Name}'");
 
         if (f.ByMethodBody != null) {

@@ -373,11 +373,11 @@ namespace Microsoft.Dafny {
         if (s.Rhs is ExprRhs) {
           var rr = (ExprRhs)s.Rhs;
           ResolveExpression(rr.Expr, new Resolver.ResolveOpts(codeContext, true));
-          AddAssignableConstraint(lhsPreType, rr.Expr.PreType, stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
+          AddSubtypeConstraint(lhsPreType, rr.Expr.PreType, stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
         } else if (s.Rhs is TypeRhs) {
           var rr = (TypeRhs)s.Rhs;
           Type t = ResolveTypeRhs(rr, stmt, codeContext);
-          AddAssignableConstraint(lhsPreType, Type2PreType(t), stmt.Tok, "type {1} is not assignable to LHS (of type {0})");
+          AddSubtypeConstraint(lhsPreType, Type2PreType(t), stmt.Tok, "type {1} is not assignable to LHS (of type {0})");
         } else if (s.Rhs is HavocRhs) {
           // nothing else to do
         } else {
@@ -1142,7 +1142,7 @@ namespace Microsoft.Dafny {
           } else if (rr.InitDisplay != null) {
             foreach (var v in rr.InitDisplay) {
               ResolveExpression(v, new Resolver.ResolveOpts(codeContext, false));
-              AddAssignableConstraint(Type2PreType(rr.EType), v.PreType, v.tok, "initial value must be assignable to array's elements (expected '{0}', got '{1}')");
+              AddSubtypeConstraint(Type2PreType(rr.EType), v.PreType, v.tok, "initial value must be assignable to array's elements (expected '{0}', got '{1}')");
             }
           }
         } else {
