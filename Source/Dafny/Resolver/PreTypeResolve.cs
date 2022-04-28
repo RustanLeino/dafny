@@ -141,6 +141,9 @@ namespace Microsoft.Dafny {
           "seq";
         var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
         return new DPreType(BuiltInTypeDecl(name), args, printableType);
+      } else if (type is ArrowType at) {
+        var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
+        return new DPreType(BuiltInArrowTypeDecl(at.Arity), args);
       } else if (type is UserDefinedType udt) {
         var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
         return new DPreType(udt.ResolvedClass, args);

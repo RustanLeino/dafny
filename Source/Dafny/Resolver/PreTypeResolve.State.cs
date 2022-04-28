@@ -167,7 +167,11 @@ namespace Microsoft.Dafny {
 
     abstract class PreTypeStateWithErrorMessage {
       public readonly IToken tok;
-      public readonly string ErrorFormatString;
+      // exactly one of "errorFormatString" and "errorFormatStringProducer" is non-null
+      private readonly string errorFormatString;
+      private readonly Func<string> errorFormatStringProducer;
+
+      public string ErrorFormatString => errorFormatString ?? errorFormatStringProducer();
 
       public abstract string ErrorMessage();
 
@@ -175,7 +179,14 @@ namespace Microsoft.Dafny {
         Contract.Requires(tok != null);
         Contract.Requires(errorFormatString != null);
         this.tok = tok;
-        this.ErrorFormatString = errorFormatString;
+        this.errorFormatString = errorFormatString;
+      }
+
+      public PreTypeStateWithErrorMessage(IToken tok, Func<string> errorFormatStringProducer) {
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatStringProducer != null);
+        this.tok = tok;
+        this.errorFormatStringProducer = errorFormatStringProducer;
       }
     }
 
@@ -203,6 +214,20 @@ namespace Microsoft.Dafny {
         Sub = sub.Normalize();
       }
 
+      public SubtypeConstraint(PreType super, PreType sub, IToken tok, Func<string> errorFormatStringProducer)
+        : base(tok, errorFormatStringProducer) {
+        Contract.Requires(super != null);
+        Contract.Requires(sub != null);
+        Contract.Requires(tok != null);
+        Contract.Requires(errorFormatStringProducer != null);
+#if DEBUG
+        Contract.Assert(super != null);
+        Contract.Assert(sub != null);
+#endif
+        Super = super.Normalize();
+        Sub = sub.Normalize();
+      }
+
       public SubtypeConstraint Normalize() {
         var super = Super.Normalize();
         var sub = Sub.Normalize();
@@ -222,6 +247,14 @@ namespace Microsoft.Dafny {
       Contract.Requires(tok != null);
       Contract.Requires(errorFormatString != null);
       unnormalizedSubtypeConstraints.Add(new SubtypeConstraint(super, sub, tok, errorFormatString));
+    }
+
+    void AddSubtypeConstraint(PreType super, PreType sub, IToken tok, Func<string> errorFormatStringProducer) {
+      Contract.Requires(super != null);
+      Contract.Requires(sub != null);
+      Contract.Requires(tok != null);
+      Contract.Requires(errorFormatStringProducer != null);
+      unnormalizedSubtypeConstraints.Add(new SubtypeConstraint(super, sub, tok, errorFormatStringProducer));
     }
 
     bool ApplySubtypeConstraints() {

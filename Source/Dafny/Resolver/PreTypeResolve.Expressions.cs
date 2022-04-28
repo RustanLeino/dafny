@@ -353,20 +353,31 @@ namespace Microsoft.Dafny {
         }
 
         expr.Type = fnType == null ? new InferredTypeProxy() : fnType.Result;
+#endif
 
       } else if (expr is SeqConstructionExpr) {
         var e = (SeqConstructionExpr)expr;
         var elementType = e.ExplicitElementType ?? new InferredTypeProxy();
-        ResolveType(e.tok, elementType, opts.codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
+        resolver.ResolveType(e.tok, elementType, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        var elementPreType = Type2PreType(elementType);
         ResolveExpression(e.N, opts);
-        ConstrainToIntegerType(e.N, false, "sequence construction must use an integer-based expression for the sequence size (got {0})");
+        ConstrainToIntFamily(e.N.PreType, e.N.tok, "sequence construction must use an integer-based expression for the sequence size (got {0})");
         ResolveExpression(e.Initializer, opts);
-        var arrowType = new ArrowType(e.tok, builtIns.ArrowTypeDecls[1], new List<Type>() { builtIns.Nat() }, elementType);
-        var hintString = " (perhaps write '_ =>' in front of the expression you gave in order to make it an arrow type)";
-        ConstrainSubtypeRelation(arrowType, e.Initializer.Type, e.Initializer, "sequence-construction initializer expression expected to have type '{0}' (instead got '{1}'){2}",
-          arrowType, e.Initializer.Type, new LazyString_OnTypeEquals(elementType, e.Initializer.Type, hintString));
-        expr.Type = new SeqType(elementType);
+        var intPreType = new DPreType(BuiltInTypeDecl("int"), this);
+        var arrowPreType = new DPreType(BuiltInArrowTypeDecl(1), new List<PreType>() { intPreType, elementPreType });
+        var resultPreType = new DPreType(BuiltInTypeDecl("seq"), new List<PreType>() { elementPreType });
+        AddSubtypeConstraint(arrowPreType, e.Initializer.PreType, e.Initializer.tok,
+          () => {
+            var strFormat = "sequence-construction initializer expression expected to have type '{0}' (instead got '{1}')";
+            if (PreType.Same(elementPreType, e.Initializer.PreType)) {
+              var hintString = " (perhaps write '_ =>' in front of the expression you gave in order to make it an arrow type)";
+              strFormat += hintString;
+            }
+            return strFormat;
+          });
+        expr.PreType = resultPreType;
 
+#if SOON
       } else if (expr is MultiSetFormingExpr) {
         MultiSetFormingExpr e = (MultiSetFormingExpr)expr;
         ResolveExpression(e.E, opts);
@@ -621,7 +632,7 @@ namespace Microsoft.Dafny {
         scope.PopMarker();
         var typeArguments = e.BoundVars.ConvertAll(v => v.PreType);
         typeArguments.Add(e.Body.PreType);
-        expr.PreType = new DPreType(BuiltInTypeDecl("~>"), typeArguments);
+        expr.PreType = new DPreType(BuiltInArrowTypeDecl(e.BoundVars.Count), typeArguments);
 
       } else if (expr is WildcardExpr) {
         var obj = new DPreType(BuiltInTypeDecl("object?"), new List<PreType>() {});
