@@ -166,6 +166,23 @@ namespace Microsoft.Dafny {
       return decl;
     }
 
+    /// <summary>
+    /// Returns the non-newtype ancestor of "preType".
+    /// </summary>
+    public DPreType NewTypeAncestor(DPreType preType) {
+      Contract.Requires(preType != null);
+      while (preType.Decl is NewtypeDecl newtypeDecl) {
+        var parent = newtypeDecl.BasePreType.Normalize() as DPreType;
+        if (parent == null) {
+          // The parent type of this newtype apparently hasn't been inferred yet, so stop traversal here
+          break;
+        }
+        var subst = PreType.PreTypeSubstMap(newtypeDecl.TypeArgs, preType.Arguments);
+        preType = (DPreType)parent.Substitute(subst);
+      }
+      return preType;
+    }
+
     public static bool IsBitvectorName(string name, out int width) {
       Contract.Requires(name != null);
       if (name.StartsWith("bv")) {

@@ -377,36 +377,46 @@ namespace Microsoft.Dafny {
           });
         expr.PreType = resultPreType;
 
-#if SOON
       } else if (expr is MultiSetFormingExpr) {
-        MultiSetFormingExpr e = (MultiSetFormingExpr)expr;
+        var e = (MultiSetFormingExpr)expr;
         ResolveExpression(e.E, opts);
-        var elementType = new InferredTypeProxy();
-        AddXConstraint(e.E.tok, "MultiSetConvertible", e.E.Type, elementType, "can only form a multiset from a seq or set (got {0})");
-        expr.Type = new MultiSetType(elementType);
+        var targetElementPreType = CreatePreTypeProxy("multiset conversion element type");
+        AddGuardedConstraint(() => {
+          if (e.E.PreType.Normalize() is DPreType dp) {
+            if (dp.Decl.Name == "set" || dp.Decl.Name == "seq") {
+              Contract.Assert(dp.Arguments.Count == 1);
+              var sourceElementPreType = dp.Arguments[0];
+              AddSubtypeConstraint(targetElementPreType, sourceElementPreType, e.E.tok, "expecting element type {0} (got {1})");
+            } else {
+              ReportError(e.E.tok, "can only form a multiset from a seq or set (got {0})", e.E.PreType);
+            }
+            return true;
+          }
+          return false;
+        });
+        expr.PreType = new DPreType(BuiltInTypeDecl("multiset"), new List<PreType>() { targetElementPreType });
 
       } else if (expr is OldExpr) {
         var e = (OldExpr)expr;
-        e.AtLabel = ResolveDominatingLabelInExpr(expr.tok, e.At, "old", opts);
+        e.AtLabel = resolver.ResolveDominatingLabelInExpr(expr.tok, e.At, "old", opts);
         ResolveExpression(e.E, new Resolver.ResolveOpts(opts.codeContext, false, opts.isReveal, opts.isPostCondition, true));
-        expr.Type = e.E.Type;
+        expr.PreType = e.E.PreType;
 
       } else if (expr is UnchangedExpr) {
         var e = (UnchangedExpr)expr;
-        e.AtLabel = ResolveDominatingLabelInExpr(expr.tok, e.At, "unchanged", opts);
+        e.AtLabel = resolver.ResolveDominatingLabelInExpr(expr.tok, e.At, "unchanged", opts);
         foreach (var fe in e.Frame) {
-          ResolveFrameExpression(fe, FrameExpressionUse.Unchanged, opts.codeContext);
+          ResolveFrameExpression(fe, Resolver.FrameExpressionUse.Unchanged, opts.codeContext);
         }
-        expr.Type = Type.Bool;
+        ConstrainTypeExprBool(e, "result of 'unchanged' is boolean, but is used as if it had type {0}");
 
       } else if (expr is FreshExpr) {
         var e = (FreshExpr)expr;
         ResolveExpression(e.E, opts);
-        e.AtLabel = ResolveDominatingLabelInExpr(expr.tok, e.At, "fresh", opts);
+        e.AtLabel = resolver.ResolveDominatingLabelInExpr(expr.tok, e.At, "fresh", opts);
         // the type of e.E must be either an object or a set/seq of objects
-        AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of a fresh expression must denote an object or a set or sequence of objects (instead got {0})");
-        expr.Type = Type.Bool;
-#endif
+        AddConfirmation("Freshable", e.E.PreType, e.E.tok, "the argument of a fresh expression must denote an object or a set or sequence of objects (instead got {0})");
+        ConstrainTypeExprBool(e, "result of 'fresh' is boolean, but is used as if it had type {0}");
 
       } else if (expr is UnaryOpExpr) {
         var e = (UnaryOpExpr)expr;
@@ -1436,9 +1446,8 @@ namespace Microsoft.Dafny {
       rr.TypeApplication_AtEnclosingClass = new List<Type>();
       rr.TypeApplication_JustMember = new List<Type>();
 #endif
-      Dictionary<TypeParameter, PreType> subst;
       var rType = receiverPreTypeBound;
-      subst = PreType.PreTypeSubstMap(rType.Decl.TypeArgs, rType.Arguments);
+      var subst = PreType.PreTypeSubstMap(rType.Decl.TypeArgs, rType.Arguments);
       if (member.EnclosingClass == null) {
         // this can happen for some special members, like real.Floor
       } else {

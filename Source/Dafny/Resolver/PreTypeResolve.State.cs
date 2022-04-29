@@ -737,7 +737,8 @@ namespace Microsoft.Dafny {
           okay = false;
         } else {
           var pt = (DPreType)preType;
-          var ancestorDecl = AncestorDecl(pt.Decl);
+          var ancestorPt = NewTypeAncestor(pt);
+          var ancestorDecl = ancestorPt.Decl;
           var familyDeclName = ancestorDecl.Name;
           switch (c.Check) {
             case "InIntFamily":
@@ -854,6 +855,14 @@ namespace Microsoft.Dafny {
                   break;
               }
               break;
+            case "Freshable": {
+              var t = familyDeclName == "set" || familyDeclName == "iset" || familyDeclName == "seq"
+                ? ancestorPt.Arguments[0].Normalize() as DPreType
+                : ancestorPt;
+              okay = t != null && DPreType.IsReferenceTypeDecl(t.Decl);
+              break;
+            }
+
             default:
               Contract.Assert(false); // unexpected case
               throw new cce.UnreachableException();
