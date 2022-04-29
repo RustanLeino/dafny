@@ -280,7 +280,7 @@ namespace Microsoft.Dafny {
 
         // Add the locals to the scope
         foreach (var local in s.Locals) {
-          ScopePushAndReport(scope, local, "local-variable");
+          ScopePushAndReport(local, "local-variable");
         }
         // With the new locals in scope, it's now time to resolve the attributes on all the locals
         foreach (var local in s.Locals) {
@@ -407,7 +407,7 @@ namespace Microsoft.Dafny {
         if (s.IsBindingGuard) {
           var exists = (ExistsExpr)s.Guard;
           foreach (var v in exists.BoundVars) {
-            ScopePushAndReport(scope, v, "bound-variable");
+            ScopePushAndReport(v, "bound-variable");
           }
         }
         dominatingStatementLabels.PushMarker();
@@ -1280,7 +1280,7 @@ namespace Microsoft.Dafny {
         if (alternative.IsBindingGuard) {
           var exists = (ExistsExpr)alternative.Guard;
           foreach (var v in exists.BoundVars) {
-            ScopePushAndReport(scope, v, "bound-variable");
+            ScopePushAndReport(v, "bound-variable");
           }
         }
         ResolveAttributes(alternative, new Resolver.ResolveOpts(codeContext, true), false);

@@ -511,7 +511,7 @@ namespace Microsoft.Dafny {
             // Check for duplicate names now, because not until after resolving the case pattern do we know if identifiers inside it refer to bound variables or nullary constructors
             var c = 0;
             foreach (var v in lhs.Vars) {
-              ScopePushAndReport(scope, v, "let-variable");
+              ScopePushAndReport(v, "let-variable");
               c++;
             }
             if (c == 0) {
@@ -530,8 +530,8 @@ namespace Microsoft.Dafny {
           foreach (var lhs in e.LHSs) {
             Contract.Assert(lhs.Var != null);  // the parser already checked that every LHS is a BoundVar, not a general pattern
             var v = lhs.Var;
-            ScopePushAndReport(scope, v, "let-variable");
             resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+            ScopePushAndReport(v, "let-variable");
 #if SOON
             resolver.AddTypeDependencyEdges(opts.codeContext, v.Type);
 #endif
@@ -560,8 +560,8 @@ namespace Microsoft.Dafny {
         Contract.Assert(e.SplitQuantifier == null); // No split quantifiers during resolution
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
-          ScopePushAndReport(scope, v, "bound-variable");
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          ScopePushAndReport(v, "bound-variable");
         }
         if (e.Range != null) {
           ResolveExpression(e.Range, opts);
@@ -579,8 +579,8 @@ namespace Microsoft.Dafny {
         var e = (SetComprehension)expr;
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
-          ScopePushAndReport(scope, v, "bound-variable");
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          ScopePushAndReport(v, "bound-variable");
         }
         ResolveExpression(e.Range, opts);
         ConstrainTypeExprBool(e.Range, "range of comprehension must be of type bool (instead got {0})");
@@ -595,8 +595,8 @@ namespace Microsoft.Dafny {
         scope.PushMarker();
         Contract.Assert(e.BoundVars.Count == 1 || (1 < e.BoundVars.Count && e.TermLeft != null));
         foreach (BoundVar v in e.BoundVars) {
-          ScopePushAndReport(scope, v, "bound-variable");
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          ScopePushAndReport(v, "bound-variable");
           if (v.Type is InferredTypeProxy inferredProxy) {
             Contract.Assert(!inferredProxy.KeepConstraints);  // in general, this proxy is inferred to be a base type
           }
@@ -617,8 +617,8 @@ namespace Microsoft.Dafny {
         var e = (LambdaExpr)expr;
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
-          ScopePushAndReport(scope, v, "bound-variable");
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          ScopePushAndReport(v, "bound-variable");
         }
 
         if (e.Range != null) {
@@ -1071,9 +1071,11 @@ namespace Microsoft.Dafny {
             return null;
           }
         }
+#if NO_LONGER_NEEDED
         if (v.PreType == null) {
           v.PreType = Type2PreType(v.Type, $"type of identifier '{name}'");
         }
+#endif
         r = new IdentifierExpr(expr.tok, v) {
           PreType = v.PreType
         };

@@ -201,14 +201,24 @@ namespace Microsoft.Dafny {
       this.resolver = resolver;
     }
 
-    void ScopePushAndReport(Scope<IVariable> scope, IVariable v, string kind) {
+    void ScopePushAndReport(IVariable v, string kind) {
       Contract.Requires(scope != null);
       Contract.Requires(v != null);
       Contract.Requires(kind != null);
+      v.PreType = Type2PreType(v.Type);
       ScopePushAndReport(scope, v.Name, v, v.Tok, kind);
     }
 
-    void ScopePushAndReport<Thing>(Scope<Thing> scope, string name, Thing thing, IToken tok, string kind) where Thing : class {
+    void ScopePushExpectSuccess(IVariable v, string kind) {
+      Contract.Requires(scope != null);
+      Contract.Requires(v != null);
+      Contract.Requires(kind != null);
+      v.PreType = Type2PreType(v.Type);
+      var r = ScopePushAndReport(scope, v.Name, v, v.Tok, kind);
+      Contract.Assert(r == Scope<IVariable>.PushResult.Success);
+    }
+
+    private Scope<Thing>.PushResult ScopePushAndReport<Thing>(Scope<Thing> scope, string name, Thing thing, IToken tok, string kind) where Thing : class {
       Contract.Requires(scope != null);
       Contract.Requires(name != null);
       Contract.Requires(thing != null);
@@ -225,6 +235,7 @@ namespace Microsoft.Dafny {
           ReportWarning(tok, "Shadowed {0} name: {1}", kind, name);
           break;
       }
+      return r;
     }
 
 #if THIS_COMES_LATER
@@ -348,7 +359,7 @@ namespace Microsoft.Dafny {
           foreach (var ctor in dt.Ctors) {
             scope.PushMarker();
             scope.AllowInstance = false;
-            ctor.Formals.ForEach(p => scope.Push(p.Name, p));
+            ctor.Formals.ForEach(p => ScopePushAndReport(p, "destructor"));
             ResolveParameterDefaultValues(ctor.Formals, dt);
             scope.PopMarker();
           }
@@ -414,8 +425,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(dd.Constraint != null);
       
       scope.PushMarker();
-      var added = scope.Push(dd.Var.Name, dd.Var);
-      Contract.Assert(added == Scope<IVariable>.PushResult.Success);
+      ScopePushExpectSuccess(dd.Var, dd.WhatKind + " variable");
 
       ResolveExpression(dd.Constraint, new Resolver.ResolveOpts(new CodeContextWrapper(dd, true), false));
       ConstrainTypeExprBool(dd.Constraint, dd.WhatKind + " constraint must be of type bool (instead got {0})");
@@ -529,7 +539,7 @@ namespace Microsoft.Dafny {
       // Add in-parameters to the scope, but don't care about any duplication errors, since they have already been reported
       scope.PushMarker();
       scope.AllowInstance = false;  // disallow 'this' from use, which means that the special fields and methods added are not accessible in the syntactically given spec
-      iter.Ins.ForEach(p => scope.Push(p.Name, p));
+      iter.Ins.ForEach(p => ScopePushAndReport(p, "in-parameter"));
       ResolveParameterDefaultValues(iter.Ins, iter);
 
       // Start resolving specification...
@@ -633,7 +643,7 @@ namespace Microsoft.Dafny {
       }
 
       foreach (Formal p in f.Formals) {
-        scope.Push(p.Name, p);
+        ScopePushAndReport(p, "parameter");
       }
       ResolveAttributes(f, new Resolver.ResolveOpts(f, false), true);
       // take care of the warnShadowing attribute
@@ -654,7 +664,7 @@ namespace Microsoft.Dafny {
         Expression r = e.E;
         if (f.Result != null) {
           scope.PushMarker();
-          scope.Push(f.Result.Name, f.Result);  // function return only visible in post-conditions
+          ScopePushAndReport(f.Result, "function result"); // function return only visible in post-conditions
         }
         ResolveExpression(r, new Resolver.ResolveOpts(f, f is TwoStateFunction, false, true, false));  // since this is a function, the postcondition is still a one-state predicate, unless it's a two-state function
         ConstrainTypeExprBool(r, "Postcondition must be a boolean (got {0})");
@@ -723,7 +733,7 @@ namespace Microsoft.Dafny {
           scope.AllowInstance = false;
         }
         foreach (Formal p in m.Ins) {
-          scope.Push(p.Name, p);
+          ScopePushAndReport(p, "in-parameter");
         }
         ResolveParameterDefaultValues(m.Ins, m);
 
@@ -756,7 +766,7 @@ namespace Microsoft.Dafny {
           // start the scope again, but this time allowing instance
           scope.PushMarker();
           foreach (Formal p in m.Ins) {
-            scope.Push(p.Name, p);
+            ScopePushAndReport(p, "in-parameter");
           }
         }
 
@@ -767,7 +777,7 @@ namespace Microsoft.Dafny {
           ReportError(m.Outs[0].tok, "{0}s are not allowed to have out-parameters", m.WhatKind);
         } else {
           foreach (Formal p in m.Outs) {
-            scope.Push(p.Name, p);
+            ScopePushAndReport(p, "out-parameter");
           }
         }
 
@@ -786,7 +796,7 @@ namespace Microsoft.Dafny {
             // The body may mentioned the implicitly declared parameter _k.  Throw it into the
             // scope before resolving the body.
             var k = com.PrefixLemma.Ins[0];
-            scope.Push(k.Name, k);  // we expect no name conflict for _k
+            ScopePushExpectSuccess(k, "_k parameter");
           }
 
           dominatingStatementLabels.PushMarker();
