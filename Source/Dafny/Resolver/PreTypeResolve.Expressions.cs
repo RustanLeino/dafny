@@ -328,6 +328,7 @@ namespace Microsoft.Dafny {
       } else if (expr is FunctionCallExpr) {
         var e = (FunctionCallExpr)expr;
         ResolveFunctionCallExpr(e, opts);
+#endif
 
       } else if (expr is ApplyExpr) {
         var e = (ApplyExpr)expr;
@@ -339,21 +340,21 @@ namespace Microsoft.Dafny {
         // TODO: the following should be replaced by a type-class constraint that constrains the types of e.Function, e.Args[*], and e.Type
         var fnType = e.Function.Type.AsArrowType;
         if (fnType == null) {
-          ReportError(e.tok,
-            "non-function expression (of type {0}) is called with parameters", e.Function.Type);
+          ReportError(e.tok, "non-function expression (of type {0}) is called with parameters", e.Function.Type);
         } else if (fnType.Arity != e.Args.Count) {
           ReportError(e.tok,
             "wrong number of arguments to function application (function type '{0}' expects {1}, got {2})", fnType,
             fnType.Arity, e.Args.Count);
         } else {
           for (var i = 0; i < fnType.Arity; i++) {
-            AddAssignableConstraint(e.Args[i].tok, fnType.Args[i], e.Args[i].Type,
+            AddSubtypeConstraint(Type2PreType(fnType.Args[i]), e.Args[i].PreType, e.Args[i].tok,
               "type mismatch for argument" + (fnType.Arity == 1 ? "" : " " + i) + " (function expects {0}, got {1})");
           }
         }
-
         expr.Type = fnType == null ? new InferredTypeProxy() : fnType.Result;
-#endif
+
+        expr.PreType = CreatePreTypeProxy("apply expression result");
+        AddSubtypeConstraint(expr.PreType, Type2PreType(expr.Type), expr.tok, "function result '{1}' used as if it had type '{0}'");
 
       } else if (expr is SeqConstructionExpr) {
         var e = (SeqConstructionExpr)expr;
