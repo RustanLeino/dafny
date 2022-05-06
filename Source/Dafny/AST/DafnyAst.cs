@@ -12570,6 +12570,7 @@ namespace Microsoft.Dafny {
     public readonly Type Type; // This is the syntactic type, ExtendedPatterns dissapear during resolution.
     public List<ExtendedPattern> Arguments; // null if just an identifier; possibly empty argument list if a constructor call
     public LiteralExpr ResolvedLit; // null if just an identifier
+    public PreType PreType;
 
     public void MakeAConstructor() {
       this.Arguments = new List<ExtendedPattern>();

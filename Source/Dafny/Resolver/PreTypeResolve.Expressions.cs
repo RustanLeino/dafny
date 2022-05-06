@@ -677,13 +677,15 @@ namespace Microsoft.Dafny {
 #if SOON
       } else if (expr is MatchExpr) {
         ResolveMatchExpr((MatchExpr)expr, opts);
+#endif
+
       } else if (expr is NestedMatchExpr) {
-        NestedMatchExpr e = (NestedMatchExpr)expr;
+        var e = (NestedMatchExpr)expr;
         ResolveNestedMatchExpr(e, opts);
-        if (e.ResolvedExpression != null && e.ResolvedExpression.Type != null) {
-          // i.e. no error was thrown during compiling of the NextedMatchExpr or during resolution of the ResolvedExpression
-          expr.Type = e.ResolvedExpression.Type;
+        if (e.ResolvedExpression != null) {
+          expr.PreType = e.ResolvedExpression.PreType;
         }
+
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected expression
       }
@@ -691,7 +693,6 @@ namespace Microsoft.Dafny {
       if (expr.Type == null) {
         // some resolution error occurred
         expr.Type = new InferredTypeProxy();
-#endif
       }
     }
 
@@ -1026,28 +1027,25 @@ namespace Microsoft.Dafny {
     }
 
     /// <summary>
-    /// Expecting that "receiverPreType" is an arrow type, return that arrow type, if possible.
+    /// Expecting that "preType" is a type that does not involve traits, return that type, if possible.
     /// </summary>
-    DPreType/*?*/ FindArrowType(IToken tok, PreType receiverPreType) {
-      Contract.Requires(tok != null);
-      Contract.Requires(receiverPreType != null);
+    DPreType/*?*/ FindDefinedPreType(PreType preType) {
+      Contract.Requires(preType != null);
 
-      receiverPreType = receiverPreType.Normalize();
-      if (receiverPreType is DPreType ptReceiver) {
-        return ptReceiver;
+      preType = preType.Normalize();
+      if (preType is PreTypeProxy proxy) {
+        // We're looking a type with concerns for traits, so if the proxy has any sub- or super-type, then (if the
+        // program is legal at all, then) that sub- or super-type must be the type we're looking for.
+        foreach (var sub in AllSubBounds(proxy, new HashSet<PreTypeProxy>())) {
+          return sub;
+        }
+        foreach (var super in AllSuperBounds(proxy, new HashSet<PreTypeProxy>())) {
+          return super;
+        }
+        return null;
       }
 
-      var proxy = (PreTypeProxy)receiverPreType;
-      // We're looking an arrow type, so if the proxy has any sub- or super-type, then (if the program is legal at all, then)
-      // that sub- or super-type must be an arrow type.
-      foreach (var sub in AllSubBounds(proxy, new HashSet<PreTypeProxy>())) {
-        return sub;
-      }
-      foreach (var super in AllSuperBounds(proxy, new HashSet<PreTypeProxy>())) {
-        return super;
-      }
-      ReportError(tok, "type of the expression used as a function is not fully determined at this program point");
-      return null;
+      return (DPreType)preType;
     }
 
     /// <summary>
@@ -1575,8 +1573,10 @@ namespace Microsoft.Dafny {
       }
       if (r == null) {
         // e.Lhs denotes a function value, or at least it's used as if it were
-        var dp = FindArrowType(e.Lhs.tok, e.Lhs.PreType);
-        if (dp != null && DPreType.IsArrowType(dp.Decl)) {
+        var dp = FindDefinedPreType(e.Lhs.PreType);
+        if (dp == null) {
+          ReportError(e.Lhs.tok, "type of the expression used as a function is not fully determined at this program point");
+        } else if (DPreType.IsArrowType(dp.Decl)) {
           // e.Lhs does denote a function value
           // In the general case, we'll resolve this as an ApplyExpr, but in the more common case of the Lhs
           // naming a function directly, we resolve this as a FunctionCallExpr.
