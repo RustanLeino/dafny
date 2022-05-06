@@ -38,9 +38,10 @@ namespace Microsoft.Dafny {
         whatKind = "datatype constructor";
         name = $"{whatKind} '{cCtor.Name}'";
       } else {
-        var cArrowType = (ArrowType)context;
+        var arrowPreType = (DPreType)context;
+        Contract.Assert(DPreType.IsArrowType(arrowPreType.Decl));
         whatKind = "function application";
-        name = $"function type '{cArrowType}'";
+        name = $"function type '{arrowPreType}'";
       }
 
       // If all arguments are passed positionally, use simple error messages that talk about the count of arguments.

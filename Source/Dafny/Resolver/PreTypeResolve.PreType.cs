@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
+using System.Linq;
 using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
@@ -193,13 +194,27 @@ namespace Microsoft.Dafny {
 
     public override string ToString() {
       var name = Decl.Name;
-      if (IsReferenceTypeDecl(Decl)) {
-        name = name + "?";
+      string s;
+
+      if (IsArrowType(Decl)) {
+        var a0 = Arguments[0].Normalize() as DPreType;
+        if (Arguments.Count == 2 && a0 != null && !IsTupleType(a0.Decl) && !IsArrowType(a0.Decl)) {
+          s = Arguments[0].ToString();
+        } else {
+          s = $"({Util.Comma(Arguments.GetRange(0, Arguments.Count - 1), arg => arg.ToString())})";
+        }
+        s += $" ~> {Arguments.Last()}";
+      } else {
+        if (IsReferenceTypeDecl(Decl)) {
+          name = name + "?";
+        }
+        if (Arguments.Count == 0) {
+          s = name;
+        } else {
+          s = $"{name}<{Util.Comma(Arguments, arg => arg.ToString())}>";
+        }
       }
-      if (Arguments.Count == 0) {
-        return name;
-      }
-      var s = $"{name}<{Util.Comma(Arguments, arg => arg.ToString())}>";
+
       if (PrintableType != null) {
 #if PRINT_SYNONYMS
         s += $"/*aka {PrintableType}*/";
@@ -229,6 +244,11 @@ namespace Microsoft.Dafny {
     public static bool IsArrowType(TopLevelDecl decl) {
       Contract.Requires(decl != null);
       return decl.Name.StartsWith("~>");
+    }
+
+    public static bool IsTupleType(TopLevelDecl decl) {
+      Contract.Requires(decl != null);
+      return decl.Name.StartsWith("(");
     }
 
     public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {

@@ -95,7 +95,7 @@ namespace Microsoft.Dafny {
         var e = (IdentifierExpr)expr;
         e.Var = scope.Find(e.Name);
         if (e.Var != null) {
-          expr.PreType = Type2PreType(e.Var.Type, $"type of identifier '{e.Var.Name}'");
+          expr.PreType = e.Var.PreType;
         } else {
           ReportError(expr, "Identifier does not denote a local variable, parameter, or bound variable: {0}", e.Name);
         }
@@ -1026,6 +1026,31 @@ namespace Microsoft.Dafny {
     }
 
     /// <summary>
+    /// Expecting that "receiverPreType" is an arrow type, return that arrow type, if possible.
+    /// </summary>
+    DPreType/*?*/ FindArrowType(IToken tok, PreType receiverPreType) {
+      Contract.Requires(tok != null);
+      Contract.Requires(receiverPreType != null);
+
+      receiverPreType = receiverPreType.Normalize();
+      if (receiverPreType is DPreType ptReceiver) {
+        return ptReceiver;
+      }
+
+      var proxy = (PreTypeProxy)receiverPreType;
+      // We're looking an arrow type, so if the proxy has any sub- or super-type, then (if the program is legal at all, then)
+      // that sub- or super-type must be an arrow type.
+      foreach (var sub in AllSubBounds(proxy, new HashSet<PreTypeProxy>())) {
+        return sub;
+      }
+      foreach (var super in AllSuperBounds(proxy, new HashSet<PreTypeProxy>())) {
+        return super;
+      }
+      ReportError(tok, "type of the expression used as a function is not fully determined at this program point");
+      return null;
+    }
+
+    /// <summary>
     /// Look up expr.Name in the following order:
     ///  0. Local variable, parameter, or bound variable.
     ///     (Language design note:  If this clashes with something of interest, one can always rename the local variable locally.)
@@ -1550,7 +1575,8 @@ namespace Microsoft.Dafny {
       }
       if (r == null) {
         // e.Lhs denotes a function value, or at least it's used as if it were
-        if (e.Lhs.PreType.Normalize() is DPreType lhsPreType && DPreType.IsArrowType(lhsPreType.Decl)) {
+        var dp = FindArrowType(e.Lhs.tok, e.Lhs.PreType);
+        if (dp != null && DPreType.IsArrowType(dp.Decl)) {
           // e.Lhs does denote a function value
           // In the general case, we'll resolve this as an ApplyExpr, but in the more common case of the Lhs
           // naming a function directly, we resolve this as a FunctionCallExpr.
@@ -1587,15 +1613,15 @@ namespace Microsoft.Dafny {
           } else {
             // resolve as an ApplyExpr
             var formals = new List<Formal>();
-            for (var i = 0; i < lhsPreType.Arguments.Count; i++) {
-              var argType = lhsPreType.Arguments[i];
+            for (var i = 0; i < dp.Arguments.Count - 1; i++) {
+              var argType = dp.Arguments[i];
               var formal = new ImplicitFormal(e.tok, "_#p" + i, new InferredTypeProxy(), true, false);
               formal.PreType = argType;
               formals.Add(formal);
             }
-            ResolveActualParameters(e.Bindings, formals, e.tok, lhsPreType, opts, new Dictionary<TypeParameter, PreType>(), null);
+            ResolveActualParameters(e.Bindings, formals, e.tok, dp, opts, new Dictionary<TypeParameter, PreType>(), null);
             r = new ApplyExpr(e.Lhs.tok, e.Lhs, e.Args);
-            r.PreType = lhsPreType.Arguments.Last();
+            r.PreType = dp.Arguments.Last();
           }
         } else {
           // e.Lhs is used as if it were a function value, but it isn't

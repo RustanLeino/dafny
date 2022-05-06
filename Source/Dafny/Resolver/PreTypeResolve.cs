@@ -222,7 +222,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(scope != null);
       Contract.Requires(v != null);
       Contract.Requires(kind != null);
-      v.PreType = Type2PreType(v.Type);
+      v.PreType = Type2PreType(v.Type, $"type of identifier '{v.Name}'");
       ScopePushAndReport(scope, v.Name, v, v.Tok, kind);
     }
 

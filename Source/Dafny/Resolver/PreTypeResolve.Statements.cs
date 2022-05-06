@@ -227,82 +227,10 @@ namespace Microsoft.Dafny {
         }
 
       } else if (stmt is ConcreteUpdateStatement concreteUpdateStatement) {
-        ResolveConcreteUpdateStmt(concreteUpdateStatement, codeContext);
+        ResolveConcreteUpdateStmt(concreteUpdateStatement, null, codeContext);
 
-      } else if (stmt is VarDeclStmt) {
-        var s = (VarDeclStmt)stmt;
-        // We have four cases.
-        Contract.Assert(s.Update == null || s.Update is AssignSuchThatStmt || s.Update is UpdateStmt || s.Update is AssignOrReturnStmt);
-        // 0.  There is no .Update.  This is easy, we will just resolve the locals.
-        // 1.  The .Update is an AssignSuchThatStmt.  This is also straightforward:  first
-        //     resolve the locals, which adds them to the scope, and then resolve the .Update.
-        // 2.  The .Update is an UpdateStmt, which, resolved, means either a CallStmt or a bunch
-        //     of simultaneous AssignStmt's.  Here, the right-hand sides should be resolved before
-        //     the local variables have been added to the scope, but the left-hand sides should
-        //     resolve to the newly introduced variables.
-        // 3.  The .Update is a ":-" statement, for which resolution does two steps:
-        //     First, desugar, then run the regular resolution on the desugared AST.
-        // To accommodate these options, we first reach into the UpdateStmt, if any, to resolve
-        // the left-hand sides of the UpdateStmt.  This will have the effect of shielding them
-        // from a subsequent resolution (since expression resolution will do nothing if the .PreType
-        // field is already assigned.
-        // Alright, so it is:
-
-        // Resolve the types of the locals
-        foreach (var local in s.Locals) {
-          int prevErrorCount = ErrorCount;
-          resolver.ResolveType(local.Tok, local.OptionalType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          if (ErrorCount == prevErrorCount) {
-            local.type = local.OptionalType;
-          } else {
-            local.type = new InferredTypeProxy();
-          }
-          local.PreType = Type2PreType(local.Type, $"type of local variable '{local.Name}'");
-        }
-        // Resolve the UpdateStmt or AssignOrReturnStmt, if any
-        if (s.Update is UpdateStmt || s.Update is AssignOrReturnStmt) {
-          // resolve the LHS
-          Contract.Assert(s.Update.Lhss.Count == s.Locals.Count);
-          for (int i = 0; i < s.Update.Lhss.Count; i++) {
-            var local = s.Locals[i];
-            // the cast on the next line is justified, because that's how the parser creates the VarDeclStmt
-            var lhs = (IdentifierExpr)s.Update.Lhss[i];
-            Contract.Assert(lhs.PreType == null);  // not yet resolved
-            lhs.Var = local;
-            lhs.PreType = local.PreType;
-          }
-          if (s.Update is AssignOrReturnStmt assignOrReturnStmt) {
-            ResolveAssignOrReturnStmt(assignOrReturnStmt, codeContext);
-          } else {
-            ResolveConcreteUpdateStmt(s.Update, codeContext);
-          }
-        }
-
-        // Add the locals to the scope
-        foreach (var local in s.Locals) {
-          ScopePushAndReport(local, "local-variable");
-        }
-        // With the new locals in scope, it's now time to resolve the attributes on all the locals
-        foreach (var local in s.Locals) {
-          ResolveAttributes(local, new Resolver.ResolveOpts(codeContext, true), false);
-        }
-        // Resolve the AssignSuchThatStmt, if any
-        if (s.Update is AssignSuchThatStmt) {
-          ResolveConcreteUpdateStmt(s.Update, codeContext);
-        }
-        // Check on "assumption" variables
-        foreach (var local in s.Locals) {
-          if (Attributes.Contains(local.Attributes, "assumption")) {
-            if (currentMethod != null) {
-              AddSubtypeConstraint(Type2PreType(Type.Bool), Type2PreType(local.type), local.Tok, "assumption variable must be of type 'bool'");
-              if (!local.IsGhost) {
-                ReportError(local.Tok, "assumption variable must be ghost");
-              }
-            } else {
-              ReportError(local.Tok, "assumption variable can only be declared in a method");
-            }
-          }
-        }
+      } else if (stmt is VarDeclStmt varDeclStmt) {
+        ResolveConcreteUpdateStmt(varDeclStmt.Update, varDeclStmt.Locals, codeContext);
 
 #if SOON
       } else if (stmt is VarDeclPattern) {
@@ -329,7 +257,6 @@ namespace Microsoft.Dafny {
           ReportError(s.LHS.tok, "LHS is a constant literal; to be legal, it must introduce at least one bound variable");
         }
 #endif
-
       } else if (stmt is AssignStmt) {
         var s = (AssignStmt)stmt;
         int prevErrorCount = ErrorCount;
@@ -697,68 +624,112 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private void ResolveConcreteUpdateStmt(ConcreteUpdateStatement s, ICodeContext codeContext) {
-      Contract.Requires(s != null);
-      Contract.Requires(codeContext != null);
-      // First, resolve all LHS's and expression-looking RHS's.
-      int errorCountBeforeCheckingLhs = ErrorCount;
+    private void ResolveConcreteUpdateStmt(ConcreteUpdateStatement update, List<LocalVariable> locals, ICodeContext codeContext) {
+      Contract.Requires(update != null || locals != null);
+      // We have four cases.
+      Contract.Assert(update == null || update is AssignSuchThatStmt || update is UpdateStmt || update is AssignOrReturnStmt);
+      // 0.  There is no update.  This is easy, we will just resolve the locals.
+      // 1.  The update is an AssignSuchThatStmt.  This is also straightforward:  first
+      //     resolve the locals, which adds them to the scope, and then resolve the update.
+      // 2.  The update is an UpdateStmt, which, resolved, means either a CallStmt or a bunch
+      //     of simultaneous AssignStmt's.  Here, the right-hand sides should be resolved before
+      //     the local variables have been added to the scope, but the left-hand sides should
+      //     resolve to the newly introduced variables.
+      // 3.  The update is a ":-" statement, for which resolution does two steps:
+      //     First, desugar, then run the regular resolution on the desugared AST.
 
-      foreach (var lhs in s.Lhss) {
-        var ec = ErrorCount;
-        ResolveExpression(lhs, new Resolver.ResolveOpts(codeContext, true));
-        if (ec == ErrorCount) {
-          if (lhs is SeqSelectExpr sseLhs && !sseLhs.SelectOne) {
-            ReportError(lhs, "cannot assign to a range of array elements (try a 'forall' statement)");
+      var errorCountBeforeCheckingStmt = ErrorCount;
+
+      // For UpdateStmt and AssignOrReturnStmt, resolve the RHSs before adding the LHSs to the scope
+      if (update is UpdateStmt updateStatement) {
+        foreach (var rhs in updateStatement.Rhss) {
+          ResolveAssignmentRhs(rhs, updateStatement, codeContext);
+        }
+      } else if (update is AssignOrReturnStmt elephantStmt) {
+        ResolveExpression(elephantStmt.Rhs, new Resolver.ResolveOpts(codeContext, true));
+        if (elephantStmt.Rhss != null) {
+          foreach (var rhs in elephantStmt.Rhss) {
+            ResolveAssignmentRhs(rhs, elephantStmt, codeContext);
           }
         }
       }
 
-      // Resolve RHSs
-      if (s is AssignSuchThatStmt assignSuchThatStmt) {
+      if (locals != null) {
+        // Add the locals to the scope
+        foreach (var local in locals) {
+          int prevErrorCount = ErrorCount;
+          resolver.ResolveType(local.Tok, local.OptionalType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          local.type = ErrorCount == prevErrorCount ? local.OptionalType : new InferredTypeProxy();
+          ScopePushAndReport(local, "local-variable");
+        }
+        // With the new locals in scope, it's now time to resolve the attributes on all the locals
+        foreach (var local in locals) {
+          ResolveAttributes(local, new Resolver.ResolveOpts(codeContext, true), false);
+        }
+      }
+
+      // Resolve the LHSs
+      if (update != null) {
+        foreach (var lhs in update.Lhss) {
+          ResolveExpression(lhs, new Resolver.ResolveOpts(codeContext, true));
+        }
+      }
+
+      if (update is AssignSuchThatStmt assignSuchThatStmt) {
         ResolveAssignSuchThatStmt(assignSuchThatStmt, codeContext);
-      } else if (s is UpdateStmt updateStatement) {
-        ResolveUpdateStmt(updateStatement, codeContext, errorCountBeforeCheckingLhs);
-      } else if (s is AssignOrReturnStmt assignOrReturnStmt) {
+      } else if (update is UpdateStmt updateStmt) {
+        ResolveUpdateStmt(updateStmt, codeContext, errorCountBeforeCheckingStmt);
+      } else if (update is AssignOrReturnStmt assignOrReturnStmt) {
         ResolveAssignOrReturnStmt(assignOrReturnStmt, codeContext);
       } else {
-        Contract.Assert(false); throw new cce.UnreachableException();
+        Contract.Assert(update == null);
       }
-      ResolveAttributes(s, new Resolver.ResolveOpts(codeContext, true), false); // TODO: hasn't this already been done, at the top of ResolveStatement?
+    }
+
+    void ResolveAssignmentRhs(AssignmentRhs rhs, Statement enclosingStmt, ICodeContext codeContext) {
+      Contract.Requires(rhs != null);
+      Contract.Requires(enclosingStmt != null);
+      Contract.Requires(codeContext != null);
+
+      if (rhs is TypeRhs tr) {
+        ResolveTypeRhs(tr, enclosingStmt, codeContext);
+      } else if (rhs is ExprRhs er) {
+        ResolveExpression(er.Expr, new Resolver.ResolveOpts(codeContext, true));
+      } else {
+        Contract.Assert(rhs is HavocRhs);
+      }
     }
 
     /// <summary>
-    /// Resolve the RHSs and entire UpdateStmt (LHSs should already have been checked by the caller).
-    /// errorCountBeforeCheckingLhs is passed in so that this method can determine if any resolution errors were found during
+    /// Assumes that LHSs and RHSs have already been resolved.
+    /// Resolve the entire UpdateStmt.
+    /// errorCountBeforeCheckingStmt is passed in so that this method can determine if any resolution errors were found during
     /// LHS or RHS checking, because only if no errors were found is update.ResolvedStmt changed.
     /// </summary>
-    private void ResolveUpdateStmt(UpdateStmt update, ICodeContext codeContext, int errorCountBeforeCheckingLhs) {
+    private void ResolveUpdateStmt(UpdateStmt update, ICodeContext codeContext, int errorCountBeforeCheckingStmt) {
       Contract.Requires(update != null);
       Contract.Requires(codeContext != null);
       IToken firstEffectfulRhs = null;
       Resolver.MethodCallInformation methodCallInfo = null;
-      var j = 0;
       foreach (var rhs in update.Rhss) {
         bool isEffectful;
         if (rhs is TypeRhs tr) {
-          ResolveTypeRhs(tr, update, codeContext);
           isEffectful = tr.InitCall != null;
         } else if (rhs is HavocRhs) {
           isEffectful = false;
         } else {
           var er = (ExprRhs)rhs;
           if (er.Expr is ApplySuffix applySuffix) {
-            var cRhs = ResolveApplySuffix(applySuffix, new Resolver.ResolveOpts(codeContext, true), true);
+            var cRhs = ResolveApplySuffix(applySuffix, new Resolver.ResolveOpts(codeContext, true), true); // TODO: don't re-resolve the RHS, only obtain the cRhs return value
             isEffectful = cRhs != null;
             methodCallInfo = methodCallInfo ?? cRhs;
           } else {
-            ResolveExpression(er.Expr, new Resolver.ResolveOpts(codeContext, true));
             isEffectful = false;
           }
         }
         if (isEffectful && firstEffectfulRhs == null) {
           firstEffectfulRhs = rhs.Tok;
         }
-        j++;
       }
 
       // figure out what kind of UpdateStmt this is
@@ -769,7 +740,7 @@ namespace Microsoft.Dafny {
         } else if (update.Lhss.Count != update.Rhss.Count) {
           ReportError(update, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment",
             update.Lhss.Count, update.Rhss.Count);
-        } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+        } else if (ErrorCount == errorCountBeforeCheckingStmt) {
           // add the statements here in a sequence, but don't use that sequence later for translation (instead, should translate properly as multi-assignment)
           for (var i = 0; i < update.Lhss.Count; i++) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[i].Resolved, update.Rhss[i]);
@@ -790,7 +761,7 @@ namespace Microsoft.Dafny {
             Contract.Assert(tr.InitCall != null); // there were effects, so this must have been a call.
             if (tr.CanAffectPreviouslyKnownExpressions) {
               ReportError(tr.Tok, "can only have initialization methods which modify at most 'this'.");
-            } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+            } else if (ErrorCount == errorCountBeforeCheckingStmt) {
               var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[0].Resolved, tr);
               update.ResolvedStatements.Add(a);
             }
@@ -807,11 +778,11 @@ namespace Microsoft.Dafny {
             Contract.Assert(2 <= update.Lhss.Count);  // the parser allows 0 Lhss only if the whole statement looks like an expression (not a TypeRhs)
             ReportError(update.Lhss[1].tok, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment",
               update.Lhss.Count, update.Rhss.Count);
-          } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+          } else if (ErrorCount == errorCountBeforeCheckingStmt) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[0].Resolved, update.Rhss[0]);
             update.ResolvedStatements.Add(a);
           }
-        } else if (ErrorCount == errorCountBeforeCheckingLhs) {
+        } else if (ErrorCount == errorCountBeforeCheckingStmt) {
           // a call statement
           var resolvedLhss = update.Lhss.ConvertAll(ll => ll.Resolved);
           var a = new CallStmt(methodCallInfo.Tok, update.EndTok, resolvedLhss, methodCallInfo.Callee, methodCallInfo.ActualParameters);
@@ -825,6 +796,10 @@ namespace Microsoft.Dafny {
       }
     }
 
+    /// <summary>
+    /// Resolve an assign-such-that statement. It is assumed that the LHSs have already been resolved,
+    /// but not the RHSs.
+    /// </summary>
     private void ResolveAssignSuchThatStmt(AssignSuchThatStmt s, ICodeContext codeContext) {
       Contract.Requires(s != null);
       Contract.Requires(codeContext != null);
@@ -842,7 +817,7 @@ namespace Microsoft.Dafny {
         }
         // to ease in the verification of the existence check, only allow local variables as LHSs
         if (s.AssumeToken == null && !(lhs.Resolved is IdentifierExpr)) {
-          ReportError(lhs, "an assign-such-that statement (without an 'assume' clause) currently only supports local-variable LHSs");
+          ReportError(lhs, "an assign-such-that statement (without an 'assume' clause) currently supports only local-variable LHSs");
         }
       }
 
@@ -881,20 +856,16 @@ namespace Microsoft.Dafny {
     /// This is also known as the "elephant operator"
     /// </summary>
     private void ResolveAssignOrReturnStmt(AssignOrReturnStmt s, ICodeContext codeContext) {
-#if SOON
-      // TODO Do I have any responsibilities regarding the use of codeContext? Is it mutable?
-
       // We need to figure out whether we are using a status type that has Extract or not,
       // as that determines how the AssignOrReturnStmt is desugared. Thus if the Rhs is a
       // method call we need to know which one (to inspect its first output); if RHs is a
       // list of expressions, we need to know the type of the first one. For all of this we have
       // to do some partial type resolution.
-
+#if SOON
       bool expectExtract = s.Lhss.Count != 0; // default value if we cannot determine and inspect the type
       Type firstType = null;
       Method call = null;
       if (s.Rhss != null && s.Rhss.Count != 0) {
-        ResolveExpression(s.Rhs, new Resolver.ResolveOpts(codeContext, true));
         firstType = s.Rhs.Type;
       } else if (s.Rhs is ApplySuffix asx) {
         ResolveApplySuffix(asx, new Resolver.ResolveOpts(codeContext, true), true);
