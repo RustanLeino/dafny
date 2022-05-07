@@ -324,9 +324,10 @@ namespace Microsoft.Dafny {
           return false;
         });
 
-#if TODO
       } else if (expr is FunctionCallExpr) {
         var e = (FunctionCallExpr)expr;
+        Contract.Assert(false); // this case is always handled by ResolveExprDotCall
+#if TODO
         ResolveFunctionCallExpr(e, opts);
 #endif
 
@@ -522,7 +523,7 @@ namespace Microsoft.Dafny {
             // Check for duplicate names now, because not until after resolving the case pattern do we know if identifiers inside it refer to bound variables or nullary constructors
             var c = 0;
             foreach (var v in lhs.Vars) {
-              ScopePushAndReport(v, "let-variable");
+              ScopePushAndReport(v, "let-variable", false); // .PreType's already assigned by ResolveCasePattern
               c++;
             }
             if (c == 0) {
@@ -542,7 +543,7 @@ namespace Microsoft.Dafny {
             Contract.Assert(lhs.Var != null);  // the parser already checked that every LHS is a BoundVar, not a general pattern
             var v = lhs.Var;
             resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-            ScopePushAndReport(v, "let-variable");
+            ScopePushAndReport(v, "let-variable", true);
 #if SOON
             resolver.AddTypeDependencyEdges(opts.codeContext, v.Type);
 #endif
@@ -579,7 +580,7 @@ namespace Microsoft.Dafny {
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          ScopePushAndReport(v, "bound-variable");
+          ScopePushAndReport(v, "bound-variable", true);
         }
         if (e.Range != null) {
           ResolveExpression(e.Range, opts);
@@ -598,7 +599,7 @@ namespace Microsoft.Dafny {
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          ScopePushAndReport(v, "bound-variable");
+          ScopePushAndReport(v, "bound-variable", true);
         }
         ResolveExpression(e.Range, opts);
         ConstrainTypeExprBool(e.Range, "range of comprehension must be of type bool (instead got {0})");
@@ -614,7 +615,7 @@ namespace Microsoft.Dafny {
         Contract.Assert(e.BoundVars.Count == 1 || (1 < e.BoundVars.Count && e.TermLeft != null));
         foreach (BoundVar v in e.BoundVars) {
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          ScopePushAndReport(v, "bound-variable");
+          ScopePushAndReport(v, "bound-variable", true);
           if (v.Type is InferredTypeProxy inferredProxy) {
             Contract.Assert(!inferredProxy.KeepConstraints);  // in general, this proxy is inferred to be a base type
           }
@@ -636,7 +637,7 @@ namespace Microsoft.Dafny {
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
           resolver.ResolveType(v.tok, v.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          ScopePushAndReport(v, "bound-variable");
+          ScopePushAndReport(v, "bound-variable", true);
         }
 
         if (e.Range != null) {
@@ -697,9 +698,9 @@ namespace Microsoft.Dafny {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected expression
       }
 
-      if (expr.Type == null) {
+      if (expr.PreType == null) {
         // some resolution error occurred
-        expr.Type = new InferredTypeProxy();
+        expr.PreType = CreatePreTypeProxy("ResolveExpression didn't compute this pre-type");
       }
     }
 
@@ -1437,18 +1438,16 @@ namespace Microsoft.Dafny {
             AddSubtypeConstraint(tentativeReceiverType, receiver.PreType, expr.tok, $"receiver type ({{1}}) does not have a member named '{name}'");
             r = ResolveExprDotCall(expr.tok, receiver, tentativeReceiverType, member, args, expr.OptTypeArguments, opts, allowMethodCall);
           } else {
-#if SOON
-            var receiver = new StaticReceiverExpr(expr.tok,
-              new UserDefinedType(expr.tok, (UserDefinedType)tentativeReceiverType, (TopLevelDeclWithMembers)member.EnclosingClass, false, lhs);
+            var receiver = new StaticReceiverExpr(expr.tok, (TopLevelDeclWithMembers)tentativeReceiverType.Decl, true);
+            receiver.PreType = Type2PreType(receiver.Type);
             r = ResolveExprDotCall(expr.tok, receiver, null, member, args, expr.OptTypeArguments, opts, allowMethodCall);
-#endif
           }
         }
       }
 
       if (r == null) {
         // an error has been reported above; we won't fill in .ResolvedExpression, but we still must fill in .PreType
-        expr.PreType = CreatePreTypeProxy();
+        expr.PreType = CreatePreTypeProxy("ExprDotName error, so using proxy instead");
       } else {
         expr.ResolvedExpression = r;
         // TODO: do we need something analogous to this for pre-types?  expr.Type = r.Type.UseInternalSynonym();

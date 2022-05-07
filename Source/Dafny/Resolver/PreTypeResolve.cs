@@ -146,14 +146,15 @@ namespace Microsoft.Dafny {
         return new DPreType(BuiltInArrowTypeDecl(at.Arity), args);
       } else if (type is UserDefinedType udt) {
         var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
-        return new DPreType(udt.ResolvedClass, args);
+        return new DPreType(udt.ResolvedClass, args, printableType);
       } else if (type is TypeProxy) {
-        return CreatePreTypeProxy(description);
+        return CreatePreTypeProxy(description ?? $"from type proxy {type}");
+      } else if (type is SelfType) {
+        return CreatePreTypeProxy("self type"); // TODO: handle this differently
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected type
       }
     }
-
 
     /// <summary>
     /// Returns the non-newtype ancestor of "cecl".
@@ -218,19 +219,30 @@ namespace Microsoft.Dafny {
       this.resolver = resolver;
     }
 
-    void ScopePushAndReport(IVariable v, string kind) {
+    void ScopePushAndReport(IVariable v, string kind, bool assignPreType = true) {
       Contract.Requires(scope != null);
       Contract.Requires(v != null);
       Contract.Requires(kind != null);
-      v.PreType = Type2PreType(v.Type, $"type of identifier '{v.Name}'");
+      if (assignPreType) {
+        Contract.Assert(v.PreType == null);
+        v.PreType = Type2PreType(v.Type, $"type of identifier '{v.Name}'");
+        Contract.Assert(v.PreType is not DPreType dp || dp.Decl != null); // sanity check that the .Decl field was set
+      } else {
+        Contract.Assert(v.PreType != null);
+      }
       ScopePushAndReport(scope, v.Name, v, v.Tok, kind);
     }
 
-    void ScopePushExpectSuccess(IVariable v, string kind) {
+    void ScopePushExpectSuccess(IVariable v, string kind, bool assignPreType = true) {
       Contract.Requires(scope != null);
       Contract.Requires(v != null);
       Contract.Requires(kind != null);
-      v.PreType = Type2PreType(v.Type);
+      if (assignPreType) {
+        Contract.Assert(v.PreType == null);
+        v.PreType = Type2PreType(v.Type, $"type of identifier '{v.Name}'");
+      } else {
+        Contract.Assert(v.PreType != null);
+      }
       var r = ScopePushAndReport(scope, v.Name, v, v.Tok, kind);
       Contract.Assert(r == Scope<IVariable>.PushResult.Success);
     }
@@ -320,81 +332,183 @@ namespace Microsoft.Dafny {
     /// <summary>
     /// For every declaration in "declarations", resolve names and determine pre-types.
     /// </summary>
-    public void ResolveDeclarations(List<TopLevelDecl> declarations) {
+    public void ResolveDeclarations(List<TopLevelDecl> declarations, string moduleName) {
       Contract.Requires(declarations != null);
-      
-      foreach (TopLevelDecl d in declarations) {
-        Contract.Assert(d != null);
-        Contract.Assert(resolver.VisibleInScope(d));
 
-        allTypeParameters.PushMarker();
-        ResolveTypeParameters(d.TypeArgs, false, d);
-        
-        if (!(d is IteratorDecl)) {
-          // Note, attributes of iterators are resolved by ResolvedIterator, after registering any names in the iterator signature
-          ResolveAttributes(d, new Resolver.ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false), true);
-        }
+      // Proceed in three phases, each of which does a complete pass over the top-level
+      // declarations and the member declarations therein.
+      //   0. Compute the pre-type of the types occurring in the signatures of all top-level
+      //      and member declarations, compute the pre-type.
+      //   1. Process name resolution and type checking _together_ for
+      //        - the constraints in redirecting types (newtypes and subset types)
+      //        - the right-hand side of const declarations
+      //      Solves these constraints together.
+      //      TODO: Then, do another cyclicity check among the redirecting types
+      //   2. Process name resolution and type check for all other declarations.
+      //      These are done individually, since there's no reason to process them together.
 
-        if (d is NewtypeDecl) {
-          var dd = (NewtypeDecl)d;
-          if (dd.Var == null) {
-            Contract.Assert(dd.Constraint == null); // follows from NewtypeDecl invariant
-            Contract.Assert(dd.BaseType != null); // this should have been set by the parser
-            Contract.Assert(dd.BasePreType == null); // this is about to be set here
-            dd.BasePreType = Type2PreType(dd.BaseType);
-          } else {
-            Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.BaseType)); // follows from NewtypeDecl invariant
-            Contract.Assert(dd.Var.PreType == null); // this is about to be set here
-            dd.Var.PreType = Type2PreType(dd.Var.Type);
-            dd.BasePreType = dd.Var.PreType;
-            Contract.Assert(dd.Constraint != null); // follows from NewtypeDecl invariant
-            ResolveConstraintAndWitness(dd);
+      // Phase 0
+      FillInPreTypesInSignatures(declarations);
+
+      // Phases 1 and 2
+      for (var initialResolutionPass = true;;) {
+        foreach (var d in declarations) {
+          Contract.Assert(resolver.VisibleInScope(d));
+
+          allTypeParameters.PushMarker();
+          ResolveTypeParameters(d.TypeArgs, false, d);
+
+          ResolveTopLevelDeclaration(d, initialResolutionPass);
+          if (d is ClassDecl classDecl && !classDecl.IsDefaultClass) {
+            ResolveTopLevelDeclaration(classDecl.NonNullTypeDecl, initialResolutionPass);
           }
 
-        } else if (d is SubsetTypeDecl) {
-          var dd = (SubsetTypeDecl)d;
-          Contract.Assert(object.ReferenceEquals(dd.Var.Type, dd.Rhs)); // follows from SubsetTypeDecl invariant
-          Contract.Assert(dd.Constraint != null); // follows from SubsetTypeDecl invariant
-
-          ResolveConstraintAndWitness(dd);
-          
-        } else if (d is IteratorDecl iter) {
-          // Note, attributes of iterators are resolved by ResolveIterator, after registering any names in the iterator signature.
-          // The following method generates the iterator's members, which in turn are resolved below.
-          ResolveIterator(iter);
-
-        } else if (d is DatatypeDecl dt) {
-          foreach (var ctor in dt.Ctors) {
-            ResolveAttributes(ctor, new Resolver.ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false), true);
-            foreach (var formal in ctor.Formals) {
-#if TODO
-              AddTypeDependencyEdges((ICallable)d, formal.Type);
-#endif
+          if (d is TopLevelDeclWithMembers dm) {
+            currentClass = dm;
+            foreach (var member in dm.Members) {
+              Contract.Assert(resolver.VisibleInScope(member));
+              ResolveMember(member, initialResolutionPass);
             }
+            currentClass = null;
           }
-          // resolve any default parameters
-          foreach (var ctor in dt.Ctors) {
-            scope.PushMarker();
-            scope.AllowInstance = false;
-            ctor.Formals.ForEach(p => ScopePushAndReport(p, "destructor"));
-            ResolveParameterDefaultValues(ctor.Formals, dt);
-            scope.PopMarker();
+
+          allTypeParameters.PopMarker();
+        }
+
+        if (initialResolutionPass) {
+          var ec = ErrorCount;
+          SolveAllTypeConstraints($"initial resolution pass in module '{moduleName}'");
+          // TODO: do another cyclicity test for redirecting types here
+          if (ec == ErrorCount) {
+            initialResolutionPass = false;
+            continue;
           }
         }
-        
-        if (d is TopLevelDeclWithMembers dm) {
-          currentClass = dm;
-          foreach (var member in dm.Members) {
-            Contract.Assert(resolver.VisibleInScope(member));
-            ResolveMember(member);
-          }
-          currentClass = null;
-        }
-        
-        allTypeParameters.PopMarker();
+        break;
       }
     }
-    
+
+    private void FillInPreTypesInSignatures(List<TopLevelDecl> declarations) {
+      void ComputePreType(Formal formal) {
+        Contract.Assume(formal.PreType == null); // precondition
+        formal.PreType = Type2PreType(formal.Type);
+      }
+
+      void ComputePreTypeField(Field field) {
+        Contract.Assume(field.PreType == null); // precondition
+        field.PreType = Type2PreType(field.Type);
+      }
+
+      void ComputePreTypeFunction(Function function) {
+        function.Formals.Iter(ComputePreType);
+        if (function.Result != null) {
+          function.Result.PreType = Type2PreType(function.Result.Type);
+        }
+        function.ResultPreType = Type2PreType(function.ResultType);
+      }
+
+      void ComputePreTypeMethod(Method method) {
+        method.Ins.Iter(ComputePreType);
+        method.Outs.Iter(ComputePreType);
+      }
+
+      foreach (var d in declarations) {
+        if (d is SubsetTypeDecl std) {
+          std.Var.PreType = Type2PreType(std.Var.Type);
+        } else if (d is NewtypeDecl nd) {
+          nd.BasePreType = Type2PreType(nd.BaseType);
+          if (nd.Var != null) {
+            Contract.Assert(object.ReferenceEquals(nd.BaseType, nd.Var.Type));
+            nd.Var.PreType = nd.BasePreType;
+          }
+        } else if (d is IteratorDecl iter) {
+          iter.Ins.Iter(ComputePreType);
+          iter.Outs.Iter(ComputePreType);
+          iter.OutsFields.Iter(ComputePreTypeField);
+        } else if (d is DatatypeDecl dtd) {
+          foreach (var ctor in dtd.Ctors) {
+            ctor.Formals.Iter(ComputePreType);
+          }
+        } else if (d is ClassDecl cl && !cl.IsDefaultClass) {
+          var nntd = cl.NonNullTypeDecl;
+          nntd.Var.PreType = Type2PreType(nntd.Var.Type);
+        }
+
+        if (d is TopLevelDeclWithMembers md) {
+          foreach (var m in md.Members) {
+            if (m is Field field) {
+              ComputePreTypeField(field);
+            } else if (m is Function function) {
+              ComputePreTypeFunction(function);
+              if (function is ExtremePredicate extremePredicate) {
+                ComputePreTypeFunction(extremePredicate.PrefixPredicate);
+              }
+            } else {
+              var method = (Method)m;
+              ComputePreTypeMethod(method);
+              if (method is ExtremeLemma extremeLemma) {
+                ComputePreTypeMethod(extremeLemma.PrefixLemma);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    /// <summary>
+    /// Resolve declaration "d", depending on the value of "initialResolutionPass". The reason for this
+    /// division of labor is that certain declarations support type inference in their signature, so those
+    /// declarations processed before any other parts of the declarations are processed.
+    ///
+    /// If "d" is a newtype or subtype declaration, then
+    ///     if "initialResolutionPass", then resolve the declaration's constraint (if any);
+    ///     ///     but don't solve the constraints;
+    ///     otherwise, resolve everything else about the declaration (including any witness expression and
+    ///     any attributes).
+    /// If "d" is a const declaration, then
+    ///     if "initialResolutionPass", then resolve the declaration's RHS (if any);
+    ///     otherwise, resolve everything else about the declaration (including any attributes).
+    /// For any other kind of declaration, then
+    ///     if "initialResolutionPass", then do nothing;
+    ///     otherwise, resolve everything in the declaration.
+    ///
+    /// If "initialResolutionPass", then type constraints are generated, but not solved; instead, they
+    /// are solved by the caller at the end of the initial resolution pass.
+    /// If "initialResolutionPass" is false, then the type constraints are solved here.
+    ///
+    /// This method assumes type parameters have been pushed.
+    /// </summary>
+    private void ResolveTopLevelDeclaration(TopLevelDecl d, bool initialResolutionPass) {
+      if (!initialResolutionPass && !(d is IteratorDecl)) {
+        // Note, attributes of iterators are resolved by ResolveIterator, after registering any names in the iterator signature
+        ResolveAttributes(d, new Resolver.ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false), true);
+      }
+
+      if (d is NewtypeDecl newtypeDecl) {
+        ResolveConstraintAndWitness(newtypeDecl, initialResolutionPass);
+      } else if (d is SubsetTypeDecl subsetTypeDecl) {
+        ResolveConstraintAndWitness(subsetTypeDecl, initialResolutionPass);
+      } else if (initialResolutionPass) {
+        // nothing else to do in this pass
+      } else if (d is IteratorDecl iter) {
+        // Note, attributes of iterators are resolved by ResolveIterator, after registering any names in the iterator signature.
+        // The following method generates the iterator's members, which in turn are resolved below.
+        ResolveIterator(iter);
+      } else if (d is DatatypeDecl dt) {
+        foreach (var ctor in dt.Ctors) {
+          ResolveAttributes(ctor, new Resolver.ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false), true);
+        }
+        // resolve any default parameters
+        foreach (var ctor in dt.Ctors) {
+          scope.PushMarker();
+          scope.AllowInstance = false;
+          ctor.Formals.ForEach(p => ScopePushAndReport(p, "destructor", false));
+          ResolveParameterDefaultValues(ctor.Formals, dt);
+          scope.PopMarker();
+        }
+      }
+    }
+
     void ResolveTypeParameters(List<TypeParameter> tparams, bool emitErrors, TypeParameter.ParentType parent) {
       Contract.Requires(tparams != null);
       Contract.Requires(parent != null);
@@ -437,26 +551,25 @@ namespace Microsoft.Dafny {
       }
     }
 
-    void ResolveConstraintAndWitness(RedirectingTypeDecl dd) {
+    void ResolveConstraintAndWitness(RedirectingTypeDecl dd, bool initialResolutionPass) {
       Contract.Requires(dd != null);
       Contract.Requires(dd.Constraint != null);
-      
-      scope.PushMarker();
-      ScopePushExpectSuccess(dd.Var, dd.WhatKind + " variable");
 
-      ResolveExpression(dd.Constraint, new Resolver.ResolveOpts(new CodeContextWrapper(dd, true), false));
-      ConstrainTypeExprBool(dd.Constraint, dd.WhatKind + " constraint must be of type bool (instead got {0})");
-      SolveAllTypeConstraints($"{dd.WhatKind} '{dd.Name}' constraint");
-
-      if (dd.Witness != null) {
-        var prevErrCnt = ErrorCount;
+      if (initialResolutionPass) {
+        if (dd.Var != null) {
+          scope.PushMarker();
+          ScopePushExpectSuccess(dd.Var, dd.WhatKind + " variable", false);
+          ResolveExpression(dd.Constraint, new Resolver.ResolveOpts(new CodeContextWrapper(dd, true), false));
+          ConstrainTypeExprBool(dd.Constraint, dd.WhatKind + " constraint must be of type bool (instead got {0})");
+          scope.PopMarker();
+          // don't solve the type constraints here
+        }
+      } else if (dd.Witness != null) {
         var codeContext = new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost);
         ResolveExpression(dd.Witness, new Resolver.ResolveOpts(codeContext, false));
         AddSubtypeConstraint(dd.Var.PreType, dd.Witness.PreType, dd.Witness.tok, "witness expression must have type '{0}' (got '{1}')");
         SolveAllTypeConstraints($"{dd.WhatKind} '{dd.Name}' witness");
       }
-      
-      scope.PopMarker();
     }
 
     void ResolveParameterDefaultValues(List<Formal> formals, ICodeContext codeContext) {
@@ -493,21 +606,41 @@ namespace Microsoft.Dafny {
       }
     }
 
-    void ResolveMember(MemberDecl member) {
+    /// <summary>
+    /// Resolve declaration "member", depending on the value of "initialResolutionPass". The reason for this
+    /// division of labor is that certain declarations support type inference in their signature, so those
+    /// declarations processed before any other parts of the declarations are processed.
+    ///
+    /// If "member" is a const declaration, then
+    ///     if "initialResolutionPass", then generate the constraints for resolving the declaration's RHS (if any);
+    ///     otherwise, resolve everything else about the declaration (including any attributes).
+    /// For any other kind of declaration,
+    ///     if "initialResolutionPass", then do nothing;
+    ///     otherwise, resolve everything in the declaration.
+    ///
+    /// If "initialResolutionPass", then type constraints are generated, but not solved; instead, they
+    /// are solved by the caller at the end of the initial resolution pass.
+    /// If "initialResolutionPass" is false, then the type constraints are solved here.
+    ///
+    /// This method assumes type parameters of the enclosing type have been pushed.
+    /// </summary>
+    void ResolveMember(MemberDecl member, bool initialResolutionPass) {
       Contract.Requires(member != null);
       Contract.Requires(currentClass != null);
-      
-      if (member is ConstantField cfield) {
-        var opts = new Resolver.ResolveOpts(cfield, false);
-        ResolveAttributes(cfield, opts, true);
-        if (cfield.Rhs != null) {
-          ResolveExpression(cfield.Rhs, opts);
+
+      if (initialResolutionPass) {
+        if (member is ConstantField constantField && constantField.Rhs != null) {
+          var opts = new Resolver.ResolveOpts(constantField, false);
+          ResolveExpression(constantField.Rhs, opts);
         }
-        
-      } else if (member is Field) {
-        var opts = new Resolver.ResolveOpts(new NoContext(currentClass.EnclosingModuleDefinition), false);
-        ResolveAttributes(member, opts, true);
-        
+        return;
+      }
+      
+      ResolveAttributes(member, new Resolver.ResolveOpts(new NoContext(currentClass.EnclosingModuleDefinition), false), true);
+
+      if (member is Field) {
+        // nothing else to do
+
       } else if (member is Function f) {
         var ec = ErrorCount;
         allTypeParameters.PushMarker();
@@ -515,8 +648,8 @@ namespace Microsoft.Dafny {
         ResolveFunction(f);
         allTypeParameters.PopMarker();
         
-        if (f is ExtremePredicate ef && ef.PrefixPredicate != null && ec == ErrorCount) {
-          var ff = ef.PrefixPredicate;
+        if (f is ExtremePredicate extremePredicate && extremePredicate.PrefixPredicate != null && ec == ErrorCount) {
+          var ff = extremePredicate.PrefixPredicate;
           allTypeParameters.PushMarker();
           ResolveTypeParameters(ff.TypeArgs, false, ff);
           ResolveFunction(ff);
@@ -556,7 +689,7 @@ namespace Microsoft.Dafny {
       // Add in-parameters to the scope, but don't care about any duplication errors, since they have already been reported
       scope.PushMarker();
       scope.AllowInstance = false;  // disallow 'this' from use, which means that the special fields and methods added are not accessible in the syntactically given spec
-      iter.Ins.ForEach(p => ScopePushAndReport(p, "in-parameter"));
+      iter.Ins.ForEach(p => ScopePushAndReport(p, "in-parameter", false));
       ResolveParameterDefaultValues(iter.Ins, iter);
 
       // Start resolving specification...
@@ -660,7 +793,7 @@ namespace Microsoft.Dafny {
       }
 
       foreach (Formal p in f.Formals) {
-        ScopePushAndReport(p, "parameter");
+        ScopePushAndReport(p, "parameter", false);
       }
       ResolveAttributes(f, new Resolver.ResolveOpts(f, false), true);
       // take care of the warnShadowing attribute
@@ -681,7 +814,7 @@ namespace Microsoft.Dafny {
         Expression r = e.E;
         if (f.Result != null) {
           scope.PushMarker();
-          ScopePushAndReport(f.Result, "function result"); // function return only visible in post-conditions
+          ScopePushAndReport(f.Result, "function result", false); // function return only visible in post-conditions
         }
         ResolveExpression(r, new Resolver.ResolveOpts(f, f is TwoStateFunction, false, true, false));  // since this is a function, the postcondition is still a one-state predicate, unless it's a two-state function
         ConstrainTypeExprBool(r, "Postcondition must be a boolean (got {0})");
@@ -750,7 +883,7 @@ namespace Microsoft.Dafny {
           scope.AllowInstance = false;
         }
         foreach (Formal p in m.Ins) {
-          ScopePushAndReport(p, "in-parameter");
+          ScopePushAndReport(p, "in-parameter", false);
         }
         ResolveParameterDefaultValues(m.Ins, m);
 
@@ -783,7 +916,7 @@ namespace Microsoft.Dafny {
           // start the scope again, but this time allowing instance
           scope.PushMarker();
           foreach (Formal p in m.Ins) {
-            ScopePushAndReport(p, "in-parameter");
+            ScopePushAndReport(p, "in-parameter", false);
           }
         }
 
@@ -794,7 +927,7 @@ namespace Microsoft.Dafny {
           ReportError(m.Outs[0].tok, "{0}s are not allowed to have out-parameters", m.WhatKind);
         } else {
           foreach (Formal p in m.Outs) {
-            ScopePushAndReport(p, "out-parameter");
+            ScopePushAndReport(p, "out-parameter", false);
           }
         }
 
@@ -972,6 +1105,8 @@ namespace Microsoft.Dafny {
         // compare expr.PreType and expr.Type
         if (expr.PreType == null) {
           preTypeResolver.ReportWarning(expr.tok, $"sanity check WARNING: no pre-type was computed");
+        } else if (expr.Type == null) {
+          preTypeResolver.ReportError(expr.tok, $"SANITY CHECK FAILED: .PreType is '{expr.PreType}' but .Type is null");
         } else {
           if (!PreType.Same(expr.PreType, preTypeResolver.Type2PreType(expr.Type))) {
             preTypeResolver.ReportError(expr.tok, $"SANITY CHECK FAILED: pre-type '{expr.PreType}' does not correspond to type '{expr.Type}'");

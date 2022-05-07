@@ -244,12 +244,14 @@ namespace Microsoft.Dafny {
           wr.Write(" = ");
           if (dd.Var == null) {
             PrintType(dd.BaseType);
+            PrintPreType(dd.BasePreType);
             wr.WriteLine();
           } else {
             wr.Write(dd.Var.DisplayName);
             if (ShowType(dd.Var.Type)) {
               wr.Write(": ");
               PrintType(dd.BaseType);
+              PrintPreType(dd.BasePreType);
             }
             wr.WriteLine();
             Indent(indent + IndentAmount);
@@ -278,6 +280,7 @@ namespace Microsoft.Dafny {
           if (ShowType(dd.Var.Type)) {
             wr.Write(": ");
             PrintType(dd.Rhs);
+            PrintPreType(dd.Var.PreType);
           }
           if (dd is NonNullTypeDecl) {
             wr.Write(" ");

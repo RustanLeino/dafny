@@ -334,7 +334,7 @@ namespace Microsoft.Dafny {
         if (s.IsBindingGuard) {
           var exists = (ExistsExpr)s.Guard;
           foreach (var v in exists.BoundVars) {
-            ScopePushAndReport(v, "bound-variable");
+            ScopePushAndReport(v, "bound-variable", true);
           }
         }
         dominatingStatementLabels.PushMarker();
@@ -660,7 +660,7 @@ namespace Microsoft.Dafny {
           int prevErrorCount = ErrorCount;
           resolver.ResolveType(local.Tok, local.OptionalType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
           local.type = ErrorCount == prevErrorCount ? local.OptionalType : new InferredTypeProxy();
-          ScopePushAndReport(local, "local-variable");
+          ScopePushAndReport(local, "local-variable", true);
         }
         // With the new locals in scope, it's now time to resolve the attributes on all the locals
         foreach (var local in locals) {
@@ -1251,7 +1251,7 @@ namespace Microsoft.Dafny {
         if (alternative.IsBindingGuard) {
           var exists = (ExistsExpr)alternative.Guard;
           foreach (var v in exists.BoundVars) {
-            ScopePushAndReport(v, "bound-variable");
+            ScopePushAndReport(v, "bound-variable", true);
           }
         }
         ResolveAttributes(alternative, new Resolver.ResolveOpts(codeContext, true), false);

@@ -181,6 +181,7 @@ namespace Microsoft.Dafny {
     public readonly Type PrintableType;
 
     public DPreType(TopLevelDecl decl, List<PreType> arguments, Type printableType = null) {
+      Contract.Assume(decl != null);
       Decl = decl;
       Arguments = arguments;
       PrintableType = printableType;

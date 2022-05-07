@@ -468,7 +468,7 @@ namespace Microsoft.Dafny {
         allTypeParameters.PopMarker();
       }
 
-      ResolveTopLevelDecls_Core(systemModuleClassesWithNonNullTypes, new Graph<IndDatatypeDecl>(), new Graph<CoDatatypeDecl>());
+      ResolveTopLevelDecls_Core(systemModuleClassesWithNonNullTypes, new Graph<IndDatatypeDecl>(), new Graph<CoDatatypeDecl>(), prog.BuiltIns.SystemModule.Name);
 
       foreach (var rewriter in rewriters) {
         rewriter.PreResolve(prog);
@@ -1031,7 +1031,7 @@ namespace Microsoft.Dafny {
       ResolveAttributes(m, new ResolveOpts(new NoContext(m.EnclosingModule), false)); // Must follow ResolveTopLevelDecls_Signatures, in case attributes refer to members
       SolveAllTypeConstraints(); // solve any type constraints entailed by the attributes
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        ResolveTopLevelDecls_Core(m.TopLevelDecls, datatypeDependencies, codatatypeDependencies, isAnExport);
+        ResolveTopLevelDecls_Core(m.TopLevelDecls, datatypeDependencies, codatatypeDependencies, m.Name, isAnExport);
       }
 
       Type.PopScope(moduleInfo.VisibilityScope);
@@ -2639,7 +2639,10 @@ namespace Microsoft.Dafny {
       new NativeType("long", Int64.MinValue, 0x8000_0000_0000_0000, 0, NativeType.Selection.Long),
     };
 
-    public void ResolveTopLevelDecls_Core(List<TopLevelDecl/*!*/>/*!*/ declarations, Graph<IndDatatypeDecl/*!*/>/*!*/ datatypeDependencies, Graph<CoDatatypeDecl/*!*/>/*!*/ codatatypeDependencies, bool isAnExport = false) {
+    public void ResolveTopLevelDecls_Core(List<TopLevelDecl> declarations,
+      Graph<IndDatatypeDecl> datatypeDependencies,
+      Graph<CoDatatypeDecl> codatatypeDependencies,
+      string moduleName, bool isAnExport = false) {
       Contract.Requires(declarations != null);
       Contract.Requires(cce.NonNullElements(datatypeDependencies.GetVertices()));
       Contract.Requires(cce.NonNullElements(codatatypeDependencies.GetVertices()));
@@ -2650,7 +2653,7 @@ namespace Microsoft.Dafny {
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
 
 #if PRETYPE
-      preTypeResolver.ResolveDeclarations(declarations);
+      preTypeResolver.ResolveDeclarations(declarations, moduleName);
 #endif
       ResolvePass0(declarations);
 
@@ -3180,7 +3183,7 @@ namespace Microsoft.Dafny {
           }
         } else {
           if (!(d is IteratorDecl)) {
-            // Note, attributes of iterators are resolved by ResolvedIterator, after registering any names in the iterator signature
+            // Note, attributes of iterators are resolved by ResolveIterator, after registering any names in the iterator signature
             ResolveAttributes(d, new ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false));
           }
           if (d is IteratorDecl) {
@@ -9338,16 +9341,13 @@ namespace Microsoft.Dafny {
 
       foreach (MemberDecl member in cl.Members) {
         member.EnclosingClass = cl;
-        if (member is Field) {
-          if (member is ConstantField) {
-            var m = (ConstantField)member;
-            ResolveType(member.tok, ((Field)member).Type, m, ResolveTypeOptionEnum.DontInfer, null);
-          } else {
-            // In the following, we pass in a NoContext, because any cycle formed by a redirecting-type constraints would have to
-            // dereference the heap, and such constraints are not allowed to dereference the heap so an error will be produced
-            // even if we don't detect this cycle.
-            ResolveType(member.tok, ((Field)member).Type, new NoContext(cl.EnclosingModuleDefinition), ResolveTypeOptionEnum.DontInfer, null);
-          }
+        if (member is ConstantField constantField) {
+          ResolveType(member.tok, constantField.Type, constantField, ResolveTypeOptionEnum.DontInfer, null);
+        } else if (member is Field field) {
+          // In the following, we pass in a NoContext, because any cycle formed by a redirecting-type constraints would have to
+          // dereference the heap, and such constraints are not allowed to dereference the heap so an error will be produced
+          // even if we don't detect this cycle.
+          ResolveType(member.tok, field.Type, new NoContext(cl.EnclosingModuleDefinition), ResolveTypeOptionEnum.DontInfer, null);
         } else if (member is Function) {
           var f = (Function)member;
           var ec = reporter.Count(ErrorLevel.Error);
@@ -10146,13 +10146,13 @@ namespace Microsoft.Dafny {
       }
       var option = f.TypeArgs.Count == 0 ? new ResolveTypeOption(f) : new ResolveTypeOption(ResolveTypeOptionEnum.AllowPrefix);
       foreach (Formal p in f.Formals) {
-        ScopePushAndReport(scope, p, "parameter");
         ResolveType(p, f, option, f.TypeArgs);
+        ScopePushAndReport(scope, p, "parameter");
         AddTypeDependencyEdges(f, p.Type);
       }
       if (f.Result != null) {
-        ScopePushAndReport(scope, f.Result, "parameter/return");
         ResolveType(f.Result, f, option, f.TypeArgs);
+        ScopePushAndReport(scope, f.Result, "parameter/return");
       } else {
         ResolveType(f.tok, f.ResultType, f, option, f.TypeArgs);
       }
@@ -10308,14 +10308,14 @@ namespace Microsoft.Dafny {
       var option = m.TypeArgs.Count == 0 ? new ResolveTypeOption(m) : new ResolveTypeOption(ResolveTypeOptionEnum.AllowPrefix);
       // resolve in-parameters
       foreach (Formal p in m.Ins) {
-        ScopePushAndReport(scope, p, "parameter");
         ResolveType(p, m, option, m.TypeArgs);
+        ScopePushAndReport(scope, p, "parameter");
         AddTypeDependencyEdges(m, p.Type);
       }
       // resolve out-parameters
       foreach (Formal p in m.Outs) {
-        ScopePushAndReport(scope, p, "parameter");
         ResolveType(p, m, option, m.TypeArgs);
+        ScopePushAndReport(scope, p, "parameter");
         AddTypeDependencyEdges(m, p.Type);
       }
       scope.PopMarker();
@@ -10813,9 +10813,6 @@ namespace Microsoft.Dafny {
       Contract.Requires(option != null);
       Contract.Requires((option.Opt == ResolveTypeOptionEnum.DontInfer || option.Opt == ResolveTypeOptionEnum.InferTypeProxies) == (defaultTypeArguments == null));
       ResolveType(formal.tok, formal.Type, context, option, defaultTypeArguments);
-#if PRETYPE
-      formal.PreType = preTypeResolver.Type2PreType(formal.Type);
-#endif
     }
 
     public class ResolveTypeReturn {
