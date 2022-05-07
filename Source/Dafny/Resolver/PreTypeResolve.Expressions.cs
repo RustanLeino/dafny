@@ -557,11 +557,18 @@ namespace Microsoft.Dafny {
         scope.PopMarker();
         expr.PreType = e.Body.PreType;
 
-#if SOON
       } else if (expr is LetOrFailExpr) {
         var e = (LetOrFailExpr)expr;
-        ResolveLetOrFailExpr(e, opts);
-#endif
+        e.ResolvedExpression = DesugarElephantExpr(e, opts);
+        e.PreType = e.ResolvedExpression.PreType;
+        AddGuardedConstraint(() => {
+          if (e.Rhs.PreType.Normalize() is DPreType receiverPreType) {
+            bool expectExtract = e.Lhs != null;
+            EnsureSupportsErrorHandling(e.tok, receiverPreType, expectExtract);
+            return true;
+          }
+          return false;
+        });
 
       } else if (expr is QuantifierExpr) {
         var e = (QuantifierExpr)expr;
@@ -2033,6 +2040,75 @@ namespace Microsoft.Dafny {
         return false;
       });
       return resultPreType;
+    }
+
+    /// <summary>
+    /// Desugar the elphant-operator expression
+    ///     var x: T :- E; Body
+    /// into
+    ///     var burrito := E;
+    ///     if button.IsFailure() then
+    ///       burrito.PropagateFailure()
+    ///     else
+    ///       var x: T := burrito.Extract();
+    ///       Body
+    /// and desugar the elephant-operator expression
+    ///     :- E; Body
+    /// into
+    ///     var burrito := E;
+    ///     if button.IsFailure() then
+    ///       burrito.PropagateFailure()
+    ///     else
+    ///       Body
+    /// </summary>
+    public Expression DesugarElephantExpr(LetOrFailExpr expr, Resolver.ResolveOpts opts) {
+      // Using the famous monad/burrito analogy, the following variable denotes the burrito
+      var burrito = resolver.FreshTempVarName("valueOrError", opts.codeContext);
+      var burritoType = new InferredTypeProxy();
+      // "var burrito := E;"
+      return resolver.LetVarIn(expr.tok, burrito, burritoType, expr.Rhs,
+        // "if burrito.IsFailure()"
+        new ITEExpr(expr.tok, false, Resolver.VarDotFunction(expr.tok, burrito, "IsFailure"),
+          // "then burrito.PropagateFailure()"
+          Resolver.VarDotFunction(expr.tok, burrito, "PropagateFailure"),
+          // "else"
+          expr.Lhs == null
+            // "Body"
+            ? expr.Body
+            // "var x: T := burrito.Extract(); Body"
+            : Resolver.LetPatIn(expr.tok, expr.Lhs, Resolver.VarDotFunction(expr.tok, burrito, "Extract"), expr.Body)));
+    }
+
+    private void EnsureSupportsErrorHandling(IToken tok, DPreType burritoPreType, bool expectExtract, string keyword = null) {
+      Contract.Requires(tok != null);
+      Contract.Requires(burritoPreType != null);
+
+      var (memberIsFailure, _) = FindMember(tok, burritoPreType, "IsFailure");
+      var (memberPropagate, _) = FindMember(tok, burritoPreType, "PropagateFailure");
+      var (memberExtract, _) = FindMember(tok, burritoPreType, "Extract");
+
+      if (keyword != null) {
+        if (memberIsFailure == null || (memberExtract != null) != expectExtract) {
+          // more details regarding which methods are missing have already been reported by regular resolution
+          var requiredMembers = expectExtract ? "members IsFailure() and Extract()" : "member IsFailure(), but not Extract()";
+          ReportError(tok, $"right-hand side of ':- {keyword}', which is of type '{burritoPreType}', must have {requiredMembers}");
+        }
+      } else {
+        if (memberIsFailure == null || memberPropagate == null || (memberExtract != null) != expectExtract) {
+          // more details regarding which methods are missing have already been reported by regular resolution
+          var requiredMembers = expectExtract ? "IsFailure(), PropagateFailure(), and Extract()" : "IsFailure() and PropagateFailure(), but not Extract()";
+          ReportError(tok, $"right-hand side of :- operator, which is of type '{burritoPreType}', must have members {requiredMembers}");
+        }
+      }
+
+      // The following checks are not necessary, because the ghost mismatch is caught later.
+      // However, the error messages here are much clearer.
+      if (memberIsFailure != null && memberIsFailure.IsGhost) {
+        ReportError(tok, $"the IsFailure() member must not be ghost (type {burritoPreType} used in RHS of :- operator)");
+      }
+      if (keyword == null && memberPropagate != null && memberPropagate.IsGhost) {
+        ReportError(tok, $"the PropagateFailure() member must not be ghost (type {burritoPreType} used in RHS of :- operator)");
+      }
     }
 
   }
