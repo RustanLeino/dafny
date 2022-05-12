@@ -251,7 +251,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(prog != null);
 
       builtIns = prog.BuiltIns;
-      reporter = prog.reporter;
+      reporter = prog.Reporter;
 #if PRETYPE
       preTypeResolver = new PreTypeResolver(this);
 #endif
@@ -3839,20 +3839,15 @@ namespace Microsoft.Dafny {
         if (e is LiteralExpr l) {
           return l.Value;
         } else if (e is UnaryOpExpr un) {
-          if (un.Op == UnaryOpExpr.Opcode.Not) {
-            object e0 = GetAnyConst(un.E, consts);
-            if (e0 is bool) {
-              return !(bool)e0;
-            }
-            if (un.Type.IsBitVectorType) {
-              int width = un.Type.AsBitVectorType.Width;
-              return ((BigInteger.One << width) - 1) ^ (BigInteger)e0;
-            }
-          } else if (un.Op == UnaryOpExpr.Opcode.Cardinality) {
-            object e0 = GetAnyConst(un.E, consts);
-            if (e0 is string ss) {
-              return (BigInteger)(ss.Length);
-            }
+          if (un.ResolvedOp == UnaryOpExpr.ResolvedOpcode.BoolNot && GetAnyConst(un.E, consts) is bool b) {
+            return !b;
+          }
+          if (un.ResolvedOp == UnaryOpExpr.ResolvedOpcode.BVNot && GetAnyConst(un.E, consts) is BigInteger i) {
+            return ((BigInteger.One << un.Type.AsBitVectorType.Width) - 1) ^ i;
+          }
+          // TODO: This only handles strings; generalize to other collections?
+          if (un.ResolvedOp == UnaryOpExpr.ResolvedOpcode.SeqLength && GetAnyConst(un.E, consts) is string ss) {
+            return (BigInteger)(ss.Length);
           }
         } else if (e is MemberSelectExpr m) {
           if (m.Member is ConstantField c && c.IsStatic && c.Rhs != null) {
@@ -6882,7 +6877,9 @@ namespace Microsoft.Dafny {
               "a non-trivial type test is allowed only for reference types (tried to test if '{1}' is a '{0}')", e.ToType, fromType);
           }
         } else if (CheckTypeIsDetermined(expr.tok, expr.Type, "expression")) {
-          if (expr is BinaryExpr) {
+          if (expr is UnaryOpExpr uop) {
+            uop.ResolveOp(); // Force resolution eagerly at this point to catch potential bugs
+          } else if (expr is BinaryExpr) {
             var e = (BinaryExpr)expr;
             e.ResolvedOp = ResolveOp(e.Op, e.E0.Type, e.E1.Type);
             // Check for useless comparisons with "null"
@@ -10082,6 +10079,8 @@ namespace Microsoft.Dafny {
           return host is Function;
         case "abstemious":
           return host is Function;
+        case "options":
+          return host is ModuleDefinition;
         default:
           return false;
       }
@@ -14996,6 +14995,9 @@ namespace Microsoft.Dafny {
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected unary operator
         }
 
+        // We do not have enough information to compute `e.ResolvedOp` yet.
+        // For binary operators the computation happens in `CheckTypeInference`.
+        // For unary operators it happens lazily in the getter of `e.ResolvedOp`.
       } else if (expr is ConversionExpr) {
         var e = (ConversionExpr)expr;
         ResolveExpression(e.E, opts);
@@ -15026,7 +15028,8 @@ namespace Microsoft.Dafny {
         var e = (TypeTestExpr)expr;
         ResolveExpression(e.E, opts);
         var prevErrorCount = reporter.Count(ErrorLevel.Error);
-        ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
+        ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies),
+          null);
         AddAssignableConstraint(expr.tok, e.ToType, e.E.Type, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
         e.Type = Type.Bool;
 

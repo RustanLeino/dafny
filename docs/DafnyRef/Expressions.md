@@ -1,4 +1,4 @@
-# 20. Expressions
+# 20. Expressions {#sec-expressions}
 The grammar of Dafny expressions follows a hierarchy that
 reflects the precedence of Dafny operators. The following
 table shows the Dafny operators and their precedence
@@ -602,7 +602,7 @@ freshly allocated since control flow reached label `L`.
 The argument of `fresh` must be either an object reference
 or a set or sequence of object references.
 
-## 20.22. Allocated Expressions
+## 20.22. Allocated Expressions {#sec-allocated-expression}
 ````grammar
 AllocatedExpression_ =
   "allocated" "(" Expression(allowLemma: true, allowLambda: true) ")"
@@ -1019,7 +1019,7 @@ SetComprehensionExpr(allowLemma, allowLambda) =
 ````
 
 A set comprehension expression is an expression that yields a set
-(possibly infinite if `iset` is used) that
+(possibly infinite only if `iset` is used) that
 satisfies specified conditions. There are two basic forms.
 
 If there is only one quantified variable, the optional ``"::" Expression``
@@ -1066,11 +1066,14 @@ Set comprehensions involving reference types such as
 set o: object | true
 ```
 
-are allowed in ghost contexts. In particular, in ghost contexts, the
+are allowed in ghost expressions within methods, but not in ghost functions[^set-of-objects-not-in-functions].
+In particular, in ghost contexts, the
 check that the result is finite should allow any set comprehension
 where the bound variable is of a reference type. In non-ghost contexts,
 it is not allowed, because--even though the resulting set would be
 finite--it is not pleasant or practical to compute at run time.
+
+[^set-of-objects-not-in-functions]: In order to be deterministic, the result of a function should only depend on the arguments and of the objects  it [reads](#sec-reads-clause), and Dafny does not provide a way to explicitely pass the entire heap as the argument to a function. See [this post](https://github.com/dafny-lang/dafny/issues/1366#issuecomment-906785889) for more insights.
 
 The universe in which set comprehensions are evaluated is the set of all
 _allocated_ objects, of the appropriate type and satisfying the given predicate.
@@ -1090,7 +1093,7 @@ at the point in program execution that `test` is evaluated. This could be
 no instances, one per value of `x.i` in the stated range, multiple instances
 of `I` for each value of `x.i`, or any other combination.
 
-## 20.36. Statements in an Expression
+## 20.36. Statements in an Expression {#sec-statement-in-an-expression}
 ````grammar
 StmtInExpr = ( AssertStmt | AssumeStmt | ExpectStmt
              | RevealStmt | CalcStmt
@@ -1254,7 +1257,7 @@ prefix lemma (see [Section 18.3.5.3](#sec-prefix-lemmas)), the identifier
 must be the name of the greatest predicate or greatest lemma and it must be
 followed by a ``HashCall``.
 
-## 20.41. Hash Call
+## 20.41. Hash Call {#sec-hash-call}
 ````grammar
 HashCall = "#" [ GenericInstantiation ]
   "[" Expression(allowLemma: true, allowLambda: true) "]"
@@ -1582,3 +1585,13 @@ In Dafny, the following expressions are compile-time constants[^CTC], recursivel
 [^CTC]: This set of operations that are constant-folded may be enlarged in
 future versions of Dafny.
 
+## 20.47. List of specification expressions {#sec-list-of-specification-expressions}
+
+The following is a list of expressions that can only appear in specification contexts or in ghost blocks.
+
+* [Fresh expressions](#sec-fresh-expression)
+* [Allocated expressions](#sec-allocated-expression)
+* [Unchanged expressions](#sec-unchanged-expression)
+* [Old expressions](#sec-old-expression)
+* [Assert and calc expressions](#sec-statement-in-an-expression)
+* [Hash Calls](#sec-hash-call)
