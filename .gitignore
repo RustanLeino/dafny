@@ -64,3 +64,5 @@ Source/.vs
 node_modules/
 package.json
 package-lock.json
+Test/**/*-py
+/Test/logger/TestResults
