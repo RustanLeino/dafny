@@ -435,6 +435,30 @@ lemma Calc(a: bool, b: bool, c: int, d: int, e: int)
   }
 }
 
+module ToBeRefined {
+  method M() {
+  }
+}
+module RefinementDoneHere refines ToBeRefined {
+  method M() {
+    ...;
+  }
+}
+
+class CellToModify {
+  var data: int
+}
+
+method Modify(b: bool) {
+  var c := new CellToModify;
+  modify c;
+  modify c {
+    if b {
+      c.data := 20;
+    }
+  }
+}
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************

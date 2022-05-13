@@ -508,16 +508,16 @@ namespace Microsoft.Dafny {
             }
           }
         }
+#endif
 
       } else if (stmt is ModifyStmt modifyStmt) {
         ResolveAttributes(modifyStmt.Mod, new Resolver.ResolveOpts(codeContext, true), false);
         foreach (FrameExpression fe in modifyStmt.Mod.Expressions) {
-          ResolveFrameExpression(fe, FrameExpressionUse.Modifies, codeContext);
+          ResolveFrameExpression(fe, Resolver.FrameExpressionUse.Modifies, codeContext);
         }
         if (modifyStmt.Body != null) {
           ResolveBlockStatement(modifyStmt.Body, codeContext);
         }
-#endif
 
       } else if (stmt is CalcStmt calcStmt) {
         ResolveCalc(calcStmt, codeContext);
@@ -529,6 +529,7 @@ namespace Microsoft.Dafny {
       } else if (stmt is NestedMatchStmt nestedMatchStmt) {
         var opts = new Resolver.ResolveOpts(codeContext, false);
         ResolveNestedMatchStmt(nestedMatchStmt, opts);
+#endif
 
       } else if (stmt is SkeletonStatement skeletonStatement) {
         ReportError(stmt.Tok, "skeleton statements are allowed only in refining methods");
@@ -536,7 +537,7 @@ namespace Microsoft.Dafny {
         if (skeletonStatement.S != null) {
           ResolveStatement(skeletonStatement.S, codeContext);
         }
-#endif
+
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();
       }
