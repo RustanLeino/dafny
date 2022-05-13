@@ -11108,6 +11108,10 @@ namespace Microsoft.Dafny {
 
       } else if (stmt is RevealStmt) {
         var s = (RevealStmt)stmt;
+#if PRETYPE
+        var preTypeResolvedStatementsCount = s.ResolvedStatements.Count;
+        s.ResolvedStatements.Clear();
+#endif
         foreach (var expr in s.Exprs) {
           var name = RevealStmt.SingleName(expr);
           var labeledAssert = name == null ? null : dominatingStatementLabels.Find(name) as AssertLabel;
@@ -11134,6 +11138,9 @@ namespace Microsoft.Dafny {
             }
           }
         }
+#if PRETYPE
+        Contract.Assert(s.ResolvedStatements.Count == preTypeResolvedStatementsCount);
+#endif
         foreach (var a in s.ResolvedStatements) {
           ResolveStatement(a, codeContext);
         }

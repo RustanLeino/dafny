@@ -10314,12 +10314,14 @@ namespace Microsoft.Dafny {
     /// declares Member (which is some supertype of the receiver type).
     /// </summary>
     [FilledInDuringResolution] public List<Type> TypeApplication_AtEnclosingClass;
+    [FilledInDuringResolution] public List<PreType> PreTypeApplication_AtEnclosingClass;
 
     /// <summary>
     ///  TypeApplication_JustMember is the list of type arguments used to instantiate the type parameters
     /// of Member.
     /// </summary>
     [FilledInDuringResolution] public List<Type> TypeApplication_JustMember;
+    [FilledInDuringResolution] public List<PreType> PreTypeApplication_JustMember;
 
     /// <summary>
     /// Returns a mapping from formal type parameters to actual type arguments. For example, given
@@ -10355,6 +10357,43 @@ namespace Microsoft.Dafny {
         Contract.Assert(cl.TypeArgs.Count == TypeApplication_AtEnclosingClass.Count);
         for (var i = 0; i < cl.TypeArgs.Count; i++) {
           subst.Add(cl.TypeArgs[i], TypeApplication_AtEnclosingClass[i]);
+        }
+      }
+
+      return subst;
+    }
+
+    /// <summary>
+    /// Returns a mapping from formal type parameters to actual pre-type arguments. For example, given
+    ///     trait T<A> {
+    ///       function F<X>(): bv8 { ... }
+    ///     }
+    ///     class C<B, D> extends T<map<B, D>> { }
+    /// and MemberSelectExpr o.F<int> where o has type C<real, bool>, the type map returned is
+    ///     A -> map<real, bool>
+    ///     X -> int
+    /// To also include B and D in the mapping, use PreTypeArgumentSubstitutionsWithParents instead.
+    /// </summary>
+    public Dictionary<TypeParameter, PreType> PreTypeArgumentSubstitutionsAtMemberDeclaration() {
+      var subst = new Dictionary<TypeParameter, PreType>();
+
+      // Add the mappings from the member's own type parameters
+      if (Member is ICallable icallable) {
+        Contract.Assert(PreTypeApplication_JustMember.Count == icallable.TypeArgs.Count);
+        for (var i = 0; i < icallable.TypeArgs.Count; i++) {
+          subst.Add(icallable.TypeArgs[i], PreTypeApplication_JustMember[i]);
+        }
+      } else {
+        Contract.Assert(PreTypeApplication_JustMember.Count == 0);
+      }
+
+      // Add the mappings from the enclosing class.
+      TopLevelDecl cl = Member.EnclosingClass;
+      // Expand the type down to its non-null type, if any
+      if (cl != null) {
+        Contract.Assert(cl.TypeArgs.Count == PreTypeApplication_AtEnclosingClass.Count);
+        for (var i = 0; i < cl.TypeArgs.Count; i++) {
+          subst.Add(cl.TypeArgs[i], PreTypeApplication_AtEnclosingClass[i]);
         }
       }
 
@@ -10664,6 +10703,8 @@ namespace Microsoft.Dafny {
     public List<Expression> Args => Bindings.Arguments;
     [FilledInDuringResolution] public List<Type> TypeApplication_AtEnclosingClass;
     [FilledInDuringResolution] public List<Type> TypeApplication_JustFunction;
+    [FilledInDuringResolution] public List<PreType> PreTypeApplication_AtEnclosingClass;
+    [FilledInDuringResolution] public List<PreType> PreTypeApplication_JustFunction;
     [FilledInDuringResolution] public bool IsByMethodCall;
 
     /// <summary>

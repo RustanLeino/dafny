@@ -128,6 +128,9 @@ The general strategy breaks down as follows, in order:
       Determining these types requires type inference, which will be
       done in a later step. For now, these missing types will be
       filled in as distinct _type proxies_.
+      (TODO: Is this really a good idea? This may cause a constant
+      like `const L := 256` to get a type other than `int`, which seems
+      undesireable.)
 
     - Detect and report an error for any cycle among type
       synonyms. More precisely, detect any cycle in the graph whose
@@ -213,8 +216,14 @@ TODO. Describe
     - type-equality constraints (on pre-types)
     - subtype constraints (on pre-types)
     - guarded constraints
-    - default types
+    - default advice
     - post-inference confirmations
+
+
+Note: Guideline: Use `resultPreType = argPreType;` when the types necessarily share
+the same subset types. Use `resultPreType = CreatePreTypeProxy();` and
+`AddSubTypeConstraint(resultPreType, argPreType);` otherwise.
+
 
 Subset-type specialization
 --------------------------

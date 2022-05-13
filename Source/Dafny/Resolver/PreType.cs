@@ -278,6 +278,29 @@ namespace Microsoft.Dafny {
 
       return newArguments == null ? this : new DPreType(Decl, newArguments);
     }
+
+    /// <summary>
+    /// Returns the pre-type "parent<X>", where "X" is a list of type parameters that makes "parent<X>" a supertype of "this".
+    /// Requires "this" to be some pre-type "C<Y>" and "parent" to be among the reflexive, transitive parent traits of "C".
+    /// </summary>
+    public DPreType AsParentType(TopLevelDecl parent, PreTypeResolver preTypeResolver) {
+      Contract.Requires(parent != null);
+      Contract.Requires(preTypeResolver != null);
+
+      var decl = Decl;
+#if SOON
+      if (decl is InternalTypeSynonymDecl isyn) {
+        decl = isyn.RhsWithArgumentIgnoringScope(Arguments) as UserDefinedType;
+      }
+#endif
+      if (decl == parent) {
+        return this;
+      }
+      var typeMapParents = ((TopLevelDeclWithMembers)decl).ParentFormalTypeParametersToActuals;
+      var typeMap = PreTypeSubstMap(decl.TypeArgs, Arguments);
+      var typeArgs = parent.TypeArgs.ConvertAll(tp => preTypeResolver.Type2PreType(typeMapParents[tp]).Substitute(typeMap));
+      return new DPreType(parent, typeArgs);
+    }
   }
 
   /// <summary>
@@ -295,6 +318,18 @@ namespace Microsoft.Dafny {
   }
 
   public class PreTypePlaceholderType : PreTypePlaceholder {
+  }
+
+  public class UnusedPreType : PreTypePlaceholder {
+    public readonly string Why;
+
+    public UnusedPreType(string why) {
+      Why = why;
+    }
+
+    public override string ToString() {
+      return $"(unused -- {Why})";
+    }
   }
 
 }

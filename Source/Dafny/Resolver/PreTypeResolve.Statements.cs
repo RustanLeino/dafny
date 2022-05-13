@@ -116,7 +116,6 @@ namespace Microsoft.Dafny {
         var opts = new Resolver.ResolveOpts(codeContext, false);
         s.Args.Iter(e => ResolveExpression(e, opts));
 
-#if SOON
       } else if (stmt is RevealStmt) {
         var s = (RevealStmt)stmt;
         foreach (var expr in s.Exprs) {
@@ -126,9 +125,8 @@ namespace Microsoft.Dafny {
             s.LabeledAsserts.Add(labeledAssert);
           } else {
             var opts = new Resolver.ResolveOpts(codeContext, codeContext is Method || codeContext is TwoStateFunction, true, false, false);
-            if (expr is ApplySuffix) {
-              var e = (ApplySuffix)expr;
-              var methodCallInfo = ResolveApplySuffix(e, opts, true);
+            if (expr is ApplySuffix applySuffix) {
+              var methodCallInfo = ResolveApplySuffix(applySuffix, opts, true);
               if (methodCallInfo == null) {
                 ReportError(expr.tok, "expression has no reveal lemma");
               } else if (methodCallInfo.Callee.Member is TwoStateLemma && !opts.twoState) {
@@ -148,7 +146,6 @@ namespace Microsoft.Dafny {
         foreach (var a in s.ResolvedStatements) {
           ResolveStatement(a, codeContext);
         }
-#endif
 
       } else if (stmt is BreakStmt) {
         var s = (BreakStmt)stmt;
@@ -311,11 +308,9 @@ namespace Microsoft.Dafny {
           Contract.Assert(false); throw new cce.UnreachableException();  // unexpected RHS
         }
 
-#if SOON
       } else if (stmt is CallStmt) {
         CallStmt s = (CallStmt)stmt;
         ResolveCallStmt(s, codeContext, null);
-#endif
 
       } else if (stmt is BlockStmt) {
         var s = (BlockStmt)stmt;
@@ -823,6 +818,102 @@ namespace Microsoft.Dafny {
 
       ResolveExpression(s.Expr, new Resolver.ResolveOpts(codeContext, true));
       ConstrainTypeExprBool(s.Expr, "type of RHS of assign-such-that statement must be boolean (got {0})");
+    }
+
+    /// <summary>
+    /// Resolves the given call statement.
+    /// Assumes all LHSs have already been resolved (and checked for mutability).
+    /// </summary>
+    void ResolveCallStmt(CallStmt s, ICodeContext codeContext, Type receiverType) {
+      Contract.Requires(s != null);
+      Contract.Requires(codeContext != null);
+      bool isInitCall = receiverType != null;
+
+      var callee = s.Method;
+      Contract.Assert(callee != null);  // follows from the invariant of CallStmt
+      if (!isInitCall && callee is Constructor) {
+        ReportError(s, "a constructor is allowed to be called only when an object is being allocated");
+      }
+
+      // resolve left-hand sides (the right-hand sides are resolved below)
+      foreach (var lhs in s.Lhs) {
+        Contract.Assume(lhs.PreType != null);  // a sanity check that LHSs have already been resolved
+      }
+
+      bool tryToResolve = false;
+      if (callee.Outs.Count != s.Lhs.Count) {
+        if (isInitCall) {
+          ReportError(s, "a method called as an initialization method must not have any result arguments");
+        } else {
+          ReportError(s, "wrong number of method result arguments (got {0}, expected {1})", s.Lhs.Count, callee.Outs.Count);
+          tryToResolve = true;
+        }
+      } else {
+        if (isInitCall) {
+          if (callee.IsStatic) {
+            ReportError(s.Tok, "a method called as an initialization method must not be 'static'");
+          } else {
+            tryToResolve = true;
+          }
+        } else if (!callee.IsStatic) {
+          if (!scope.AllowInstance && s.Receiver is ThisExpr) {
+            // The call really needs an instance, but that instance is given as 'this', which is not
+            // available in this context.  For more details, see comment in the resolution of a
+            // FunctionCallExpr.
+            ReportError(s.Receiver, "'this' is not allowed in a 'static' context");
+          } else if (s.Receiver is StaticReceiverExpr) {
+            ReportError(s.Receiver, "call to instance method requires an instance");
+          } else {
+            tryToResolve = true;
+          }
+        } else {
+          tryToResolve = true;
+        }
+      }
+
+      if (tryToResolve) {
+        var typeMap = s.MethodSelect.PreTypeArgumentSubstitutionsAtMemberDeclaration();
+        // resolve arguments
+        ResolveActualParameters(s.Bindings, callee.Ins, s.Tok, callee, new Resolver.ResolveOpts(codeContext, true), typeMap,
+          callee.IsStatic ? null : s.Receiver);
+        // type check the out-parameter arguments (in-parameters were type checked as part of ResolveActualParameters)
+        for (var i = 0; i < callee.Outs.Count && i < s.Lhs.Count; i++) {
+          var outFormal = callee.Outs[i];
+          var st = outFormal.PreType.Substitute(typeMap);
+          var lhs = s.Lhs[i];
+          var what = GetLocationInformation(outFormal, callee.Outs.Count, i, "method out-parameter");
+
+          AddSubtypeConstraint(lhs.PreType, st, s.Tok, $"incorrect return type {what} (expected {{1}}, got {{0}})");
+        }
+        for (int i = 0; i < s.Lhs.Count; i++) {
+          var lhs = s.Lhs[i];
+          // LHS must denote a mutable field.
+          CheckIsLvalue(lhs.Resolved, codeContext);
+        }
+
+#if SOON
+        // Resolution termination check
+        ModuleDefinition callerModule = codeContext.EnclosingModule;
+        ModuleDefinition calleeModule = ((ICodeContext)callee).EnclosingModule;
+        if (callerModule == calleeModule) {
+          // intra-module call; add edge in module's call graph
+          var caller = CodeContextWrapper.Unwrap(codeContext) as ICallable;
+          if (caller == null) {
+            // don't add anything to the call graph after all
+          } else if (caller is IteratorDecl) {
+            callerModule.CallGraph.AddEdge(((IteratorDecl)caller).Member_MoveNext, callee);
+          } else {
+            callerModule.CallGraph.AddEdge(caller, callee);
+            if (caller == callee) {
+              callee.IsRecursive = true;  // self recursion (mutual recursion is determined elsewhere)
+            }
+          }
+        }
+#endif
+      }
+      if (Contract.Exists(callee.Decreases.Expressions, e => e is WildcardExpr) && !codeContext.AllowsNontermination) {
+        ReportError(s.Tok, "a call to a possibly non-terminating method is allowed only if the calling method is also declared (with 'decreases *') to be possibly non-terminating");
+      }
     }
 
     /// <summary>

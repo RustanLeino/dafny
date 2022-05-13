@@ -1053,7 +1053,7 @@ namespace Microsoft.Dafny {
         return null;
       }
 
-      return (DPreType)preType;
+      return preType as DPreType;
     }
 
     /// <summary>
@@ -1472,18 +1472,14 @@ namespace Microsoft.Dafny {
       // Now, fill in rr.PreType.  This requires taking into consideration the type parameters passed to the receiver's type as well as any type
       // parameters used in this NameSegment/ExprDotName.
       // Add to "subst" the type parameters given to the member's class/datatype
-#if SOON
-      rr.TypeApplication_AtEnclosingClass = new List<Type>();
-      rr.TypeApplication_JustMember = new List<Type>();
-#endif
+      rr.PreTypeApplication_AtEnclosingClass = new List<PreType>();
+      rr.PreTypeApplication_JustMember = new List<PreType>();
       var rType = receiverPreTypeBound;
       var subst = PreType.PreTypeSubstMap(rType.Decl.TypeArgs, rType.Arguments);
       if (member.EnclosingClass == null) {
         // this can happen for some special members, like real.Floor
       } else {
-#if SOON
-        rr.TypeApplication_AtEnclosingClass.AddRange(rType.AsParentType(member.EnclosingClass).TypeArgs);
-#endif
+        rr.PreTypeApplication_AtEnclosingClass.AddRange(rType.AsParentType(member.EnclosingClass, this).Arguments);
       }
 
       if (member is Field field) {
@@ -1507,9 +1503,7 @@ namespace Microsoft.Dafny {
         for (int i = 0; i < function.TypeArgs.Count; i++) {
           var ta = i < suppliedTypeArguments ? Type2PreType(optTypeArguments[i]) :
             CreatePreTypeProxy($"function call to {function.Name}, type argument {i}");
-#if SOON
-          rr.TypeApplication_JustMember.Add(ta);
-#endif
+          rr.PreTypeApplication_JustMember.Add(ta);
           subst.Add(function.TypeArgs[i], ta);
         }
         subst = BuildPreTypeArgumentSubstitute(subst, receiverPreTypeBound);
@@ -1536,16 +1530,14 @@ namespace Microsoft.Dafny {
         for (int i = 0; i < method.TypeArgs.Count; i++) {
           var ta = i < suppliedTypeArguments ? Type2PreType(optTypeArguments[i]) :
             CreatePreTypeProxy($"method call to {method.Name}, type argument {i}");
-#if SOON
-          rr.TypeApplication_JustMember.Add(ta);
-#endif
+          rr.PreTypeApplication_JustMember.Add(ta);
           subst.Add(method.TypeArgs[i], ta);
         }
         subst = BuildPreTypeArgumentSubstitute(subst, receiverPreTypeBound);
 #if SOON
         rr.ResolvedOutparameterTypes = method.Outs.ConvertAll(f => f.PreType.Substitute(subst));
 #endif
-        rr.PreType = CreatePreTypeProxy($"unused -- call to {method.WhatKind} {method.Name}");  // fill in this field, in order to make "rr" resolved
+        rr.PreType = new UnusedPreType($"call to {method.WhatKind} {method.Name}");  // fill in this field, in order to make "rr" resolved
       }
       return rr;
     }
@@ -1580,9 +1572,7 @@ namespace Microsoft.Dafny {
       if (r == null) {
         // e.Lhs denotes a function value, or at least it's used as if it were
         var dp = FindDefinedPreType(e.Lhs.PreType);
-        if (dp == null) {
-          ReportError(e.Lhs.tok, "type of the expression used as a function is not fully determined at this program point");
-        } else if (DPreType.IsArrowType(dp.Decl)) {
+        if (dp != null && DPreType.IsArrowType(dp.Decl)) {
           // e.Lhs does denote a function value
           // In the general case, we'll resolve this as an ApplyExpr, but in the more common case of the Lhs
           // naming a function directly, we resolve this as a FunctionCallExpr.
@@ -1596,15 +1586,11 @@ namespace Microsoft.Dafny {
             // resolve as a FunctionCallExpr instead of as an ApplyExpr(MemberSelectExpr)
             var rr = new FunctionCallExpr(e.Lhs.tok, callee.Name, mse.Obj, e.tok, e.Bindings, atLabel);
             rr.Function = callee;
-#if SOON
-            rr.TypeApplication_AtEnclosingClass = mse.TypeApplication_AtEnclosingClass;
-            rr.TypeApplication_JustFunction = mse.TypeApplication_JustMember;
-            var typeMap = mse.TypeArgumentSubstitutionsAtMemberDeclaration();
+            rr.PreTypeApplication_AtEnclosingClass = mse.PreTypeApplication_AtEnclosingClass;
+            rr.PreTypeApplication_JustFunction = mse.PreTypeApplication_JustMember;
+            var typeMap = mse.PreTypeArgumentSubstitutionsAtMemberDeclaration();
             var preTypeMap = BuildPreTypeArgumentSubstitute(
-                typeMap.Keys.ToDictionary(tp => tp, tp => Type2PreType(typeMap[tp])));
-#else
-            var preTypeMap = new Dictionary<TypeParameter, PreType>(); // BOGUS!
-#endif
+                typeMap.Keys.ToDictionary(tp => tp, tp => typeMap[tp]));
             ResolveActualParameters(rr.Bindings, callee.Formals, e.tok, callee, opts, preTypeMap, callee.IsStatic ? null : mse.Obj);
             rr.PreType = Type2PreType(callee.ResultType).Substitute(preTypeMap);
             if (errorCount == ErrorCount) {
@@ -1648,12 +1634,7 @@ namespace Microsoft.Dafny {
                 }
               }
               if (allowMethodCall) {
-#if TODO
-                var cRhs = new MethodCallInformation(e.tok, mse, e.Bindings.ArgumentBindings);
-                return cRhs;
-#else
-                return null; // TODO
-#endif
+                return new Resolver.MethodCallInformation(e.tok, mse, e.Bindings.ArgumentBindings);
               } else {
                 ReportError(e.tok, "{0} call is not allowed to be used in an expression context ({1})", mse.Member.WhatKind, mse.Member.Name);
               }
