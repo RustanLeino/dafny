@@ -61,6 +61,13 @@ namespace Microsoft.Dafny {
       resolver.Reporter.Warning(MessageSource.Resolver, tok, msg, args);
     }
 
+    private void ReportInfo(Bpl.IToken tok, string msg, params object[] args) {
+      Contract.Requires(tok != null);
+      Contract.Requires(msg != null);
+      Contract.Requires(args != null);
+      resolver.Reporter.Info(MessageSource.Resolver, tok, msg, args);
+    }
+
     private readonly Dictionary<string, TopLevelDecl> preTypeBuiltins = new();
 
     TopLevelDecl BuiltInTypeDecl(string name) {

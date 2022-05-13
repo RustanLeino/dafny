@@ -11614,7 +11614,14 @@ namespace Microsoft.Dafny {
         var prevErrorCount = reporter.Count(ErrorLevel.Error);
         CalcStmt s = (CalcStmt)stmt;
         // figure out s.Op
+#if PRETYPE
+        var preTypeResolutionOp = s.Op;
+        Contract.Assert(preTypeResolutionOp != null); // pre-type resolution shouldda figured it out
+        var preTypeResolutionStepCount = s.Steps.Count;
+        s.Steps.Clear();
+#else
         Contract.Assert(s.Op == null);  // it hasn't been set yet
+#endif
         if (s.UserSuppliedOp != null) {
           s.Op = s.UserSuppliedOp;
         } else {
@@ -11640,6 +11647,9 @@ namespace Microsoft.Dafny {
           }
           reporter.Info(MessageSource.Resolver, s.Tok, s.Op.ToString());
         }
+#if PRETYPE
+        Contract.Assert(preTypeResolutionOp == s.Op); // sanity check
+#endif
 
         if (s.Lines.Count > 0) {
           Type lineType = new InferredTypeProxy();
@@ -11689,6 +11699,9 @@ namespace Microsoft.Dafny {
         ResolveExpression(s.Result, new ResolveOpts(codeContext, true));
         Contract.Assert(s.Result != null);
         Contract.Assert(prevErrorCount != reporter.Count(ErrorLevel.Error) || s.Steps.Count == s.Hints.Count);
+#if PRETYPE
+        Contract.Assert(s.Steps.Count == preTypeResolutionStepCount);
+#endif
 
       } else if (stmt is MatchStmt) {
         ResolveMatchStmt((MatchStmt)stmt, codeContext);

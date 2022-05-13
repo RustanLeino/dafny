@@ -9,4 +9,4 @@ TypeInferenceRefresh.dfy(107,31): Error: value does not satisfy the subset const
 TypeInferenceRefresh.dfy(145,30): Error: element might not be in domain
 TypeInferenceRefresh.dfy(217,15): Error: result of operation might violate newtype constraint for 'int8'
 
-Dafny program verifier finished with 31 verified, 4 errors
+Dafny program verifier finished with 32 verified, 4 errors

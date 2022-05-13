@@ -308,14 +308,12 @@ namespace Microsoft.Dafny {
           Contract.Assert(false); throw new cce.UnreachableException();  // unexpected RHS
         }
 
-      } else if (stmt is CallStmt) {
-        CallStmt s = (CallStmt)stmt;
-        ResolveCallStmt(s, codeContext, null);
+      } else if (stmt is CallStmt callStmt) {
+        ResolveCallStmt(callStmt, codeContext, null);
 
-      } else if (stmt is BlockStmt) {
-        var s = (BlockStmt)stmt;
+      } else if (stmt is BlockStmt blockStmt) {
         scope.PushMarker();
-        ResolveBlockStatement(s, codeContext);
+        ResolveBlockStatement(blockStmt, codeContext);
         scope.PopMarker();
 
       } else if (stmt is IfStmt) {
@@ -511,112 +509,112 @@ namespace Microsoft.Dafny {
           }
         }
 
-      } else if (stmt is ModifyStmt) {
-        var s = (ModifyStmt)stmt;
-        ResolveAttributes(s.Mod, new Resolver.ResolveOpts(codeContext, true), false);
-        foreach (FrameExpression fe in s.Mod.Expressions) {
+      } else if (stmt is ModifyStmt modifyStmt) {
+        ResolveAttributes(modifyStmt.Mod, new Resolver.ResolveOpts(codeContext, true), false);
+        foreach (FrameExpression fe in modifyStmt.Mod.Expressions) {
           ResolveFrameExpression(fe, FrameExpressionUse.Modifies, codeContext);
         }
-        if (s.Body != null) {
-          ResolveBlockStatement(s.Body, codeContext);
+        if (modifyStmt.Body != null) {
+          ResolveBlockStatement(modifyStmt.Body, codeContext);
         }
+#endif
 
-      } else if (stmt is CalcStmt) {
-        var prevErrorCount = ErrorCount;
-        CalcStmt s = (CalcStmt)stmt;
-        // figure out s.Op
-        Contract.Assert(s.Op == null);  // it hasn't been set yet
-        if (s.UserSuppliedOp != null) {
-          s.Op = s.UserSuppliedOp;
-        } else {
-          // Usually, we'd use == as the default main operator.  However, if the calculation
-          // begins or ends with a boolean literal, then we can do better by selecting ==>
-          // or <==.  Also, if the calculation begins or ends with an empty set, then we can
-          // do better by selecting <= or >=.
-          if (s.Lines.Count == 0) {
-            s.Op = CalcStmt.DefaultOp;
-          } else {
-            bool b;
-            if (Expression.IsBoolLiteral(s.Lines.First(), out b)) {
-              s.Op = new CalcStmt.BinaryCalcOp(b ? BinaryExpr.Opcode.Imp : BinaryExpr.Opcode.Exp);
-            } else if (Expression.IsBoolLiteral(s.Lines.Last(), out b)) {
-              s.Op = new CalcStmt.BinaryCalcOp(b ? BinaryExpr.Opcode.Exp : BinaryExpr.Opcode.Imp);
-            } else if (Expression.IsEmptySetOrMultiset(s.Lines.First())) {
-              s.Op = new CalcStmt.BinaryCalcOp(BinaryExpr.Opcode.Ge);
-            } else if (Expression.IsEmptySetOrMultiset(s.Lines.Last())) {
-              s.Op = new CalcStmt.BinaryCalcOp(BinaryExpr.Opcode.Le);
-            } else {
-              s.Op = CalcStmt.DefaultOp;
-            }
-          }
-          reporter.Info(MessageSource.Resolver, s.Tok, s.Op.ToString());
-        }
+      } else if (stmt is CalcStmt calcStmt) {
+        ResolveCalc(calcStmt, codeContext);
 
-        if (s.Lines.Count > 0) {
-          Type lineType = new InferredTypeProxy();
-          var e0 = s.Lines.First();
-          ResolveExpression(e0, new Resolver.ResolveOpts(codeContext, true));
-          var err = new TypeConstraint.ErrorMsgWithToken(e0.tok, "all lines in a calculation must have the same type (got {0} after {1})", e0.Type, lineType);
-          ConstrainSubtypeRelation(lineType, e0.Type, err);
-          for (int i = 1; i < s.Lines.Count; i++) {
-            var e1 = s.Lines[i];
-            ResolveExpression(e1, new Resolver.ResolveOpts(codeContext, true));
-            // reuse the error object if we're on the dummy line; this prevents a duplicate error message
-            if (i < s.Lines.Count - 1) {
-              err = new TypeConstraint.ErrorMsgWithToken(e1.tok, "all lines in a calculation must have the same type (got {0} after {1})", e1.Type, lineType);
-            }
-            ConstrainSubtypeRelation(lineType, e1.Type, err);
-            var step = (s.StepOps[i - 1] ?? s.Op).StepExpr(e0, e1); // Use custom line operator
-            ResolveExpression(step, new Resolver.ResolveOpts(codeContext, true));
-            s.Steps.Add(step);
-            e0 = e1;
-          }
+#if SOON
+      } else if (stmt is MatchStmt matchStmt) {
+        ResolveMatchStmt(matchStmt, codeContext);
 
-          // clear the labels for the duration of checking the hints, because break statements are not allowed to leave a forall statement
-          var prevLblStmts = enclosingStatementLabels;
-          var prevLoopStack = loopStack;
-          enclosingStatementLabels = new Scope<Statement>();
-          loopStack = new List<Statement>();
-          foreach (var h in s.Hints) {
-            foreach (var oneHint in h.Body) {
-              dominatingStatementLabels.PushMarker();
-              ResolveStatement(oneHint, codeContext);
-              dominatingStatementLabels.PopMarker();
-            }
-          }
-          enclosingStatementLabels = prevLblStmts;
-          loopStack = prevLoopStack;
-
-        }
-        if (prevErrorCount == ErrorCount && s.Lines.Count > 0) {
-          // do not build Result from the lines if there were errors, as it might be ill-typed and produce unnecessary resolution errors
-          var resultOp = s.StepOps.Aggregate(s.Op, (op0, op1) => op1 == null ? op0 : op0.ResultOp(op1));
-          s.Result = resultOp.StepExpr(s.Lines.First(), s.Lines.Last());
-        } else {
-          s.Result = CalcStmt.DefaultOp.StepExpr(Expression.CreateIntLiteral(s.Tok, 0), Expression.CreateIntLiteral(s.Tok, 0));
-        }
-        ResolveExpression(s.Result, new Resolver.ResolveOpts(codeContext, true));
-        Contract.Assert(s.Result != null);
-        Contract.Assert(prevErrorCount != ErrorCount || s.Steps.Count == s.Hints.Count);
-
-      } else if (stmt is MatchStmt) {
-        ResolveMatchStmt((MatchStmt)stmt, codeContext);
-
-      } else if (stmt is NestedMatchStmt) {
-        var s = (NestedMatchStmt)stmt;
+      } else if (stmt is NestedMatchStmt nestedMatchStmt) {
         var opts = new Resolver.ResolveOpts(codeContext, false);
-        ResolveNestedMatchStmt(s, opts);
-      } else if (stmt is SkeletonStatement) {
-        var s = (SkeletonStatement)stmt;
-        ReportError(s.Tok, "skeleton statements are allowed only in refining methods");
+        ResolveNestedMatchStmt(nestedMatchStmt, opts);
+
+      } else if (stmt is SkeletonStatement skeletonStatement) {
+        ReportError(stmt.Tok, "skeleton statements are allowed only in refining methods");
         // nevertheless, resolve the underlying statement; hey, why not
-        if (s.S != null) {
-          ResolveStatement(s.S, codeContext);
+        if (skeletonStatement.S != null) {
+          ResolveStatement(skeletonStatement.S, codeContext);
         }
 #endif
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();
       }
+    }
+
+    private void ResolveCalc(CalcStmt s, ICodeContext codeContext) {
+      var prevErrorCount = ErrorCount;
+      // figure out s.Op
+      Contract.Assert(s.Op == null); // it hasn't been set yet
+      if (s.UserSuppliedOp != null) {
+        s.Op = s.UserSuppliedOp;
+      } else {
+        // Usually, we'd use == as the default main operator.  However, if the calculation
+        // begins or ends with a boolean literal, then we can do better by selecting ==>
+        // or <==.  Also, if the calculation begins or ends with an empty set, then we can
+        // do better by selecting <= or >=.
+        if (s.Lines.Count == 0) {
+          s.Op = CalcStmt.DefaultOp;
+        } else {
+          bool b;
+          if (Expression.IsBoolLiteral(s.Lines.First(), out b)) {
+            s.Op = new CalcStmt.BinaryCalcOp(b ? BinaryExpr.Opcode.Imp : BinaryExpr.Opcode.Exp);
+          } else if (Expression.IsBoolLiteral(s.Lines.Last(), out b)) {
+            s.Op = new CalcStmt.BinaryCalcOp(b ? BinaryExpr.Opcode.Exp : BinaryExpr.Opcode.Imp);
+          } else if (Expression.IsEmptySetOrMultiset(s.Lines.First())) {
+            s.Op = new CalcStmt.BinaryCalcOp(BinaryExpr.Opcode.Ge);
+          } else if (Expression.IsEmptySetOrMultiset(s.Lines.Last())) {
+            s.Op = new CalcStmt.BinaryCalcOp(BinaryExpr.Opcode.Le);
+          } else {
+            s.Op = CalcStmt.DefaultOp;
+          }
+        }
+        ReportInfo(s.Tok, s.Op.ToString());
+      }
+
+      if (s.Lines.Count > 0) {
+        PreType linePreType = CreatePreTypeProxy("calc line");
+        var e0 = s.Lines.First();
+        ResolveExpression(e0, new Resolver.ResolveOpts(codeContext, true));
+        AddSubtypeConstraint(linePreType, e0.PreType, e0.tok, "all lines in a calculation must have the same type (got {1} after {0})");
+        for (var i = 1; i < s.Lines.Count; i++) {
+          var e1 = s.Lines[i];
+          ResolveExpression(e1, new Resolver.ResolveOpts(codeContext, true));
+#if SOON
+          // reuse the error object if we're on the dummy line; this prevents a duplicate error message
+#endif
+          AddSubtypeConstraint(linePreType, e1.PreType, e1.tok, "all lines in a calculation must have the same type (got {1} after {0})");
+          var step = (s.StepOps[i - 1] ?? s.Op).StepExpr(e0, e1); // Use custom line operator
+          ResolveExpression(step, new Resolver.ResolveOpts(codeContext, true));
+          s.Steps.Add(step);
+          e0 = e1;
+        }
+
+        // clear the labels for the duration of checking the hints, because break statements are not allowed to leave a forall statement
+        var prevLblStmts = enclosingStatementLabels;
+        var prevLoopStack = loopStack;
+        enclosingStatementLabels = new Scope<Statement>();
+        loopStack = new List<Statement>();
+        foreach (var h in s.Hints) {
+          foreach (var oneHint in h.Body) {
+            dominatingStatementLabels.PushMarker();
+            ResolveStatement(oneHint, codeContext);
+            dominatingStatementLabels.PopMarker();
+          }
+        }
+        enclosingStatementLabels = prevLblStmts;
+        loopStack = prevLoopStack;
+      }
+      if (prevErrorCount == ErrorCount && s.Lines.Count > 0) {
+        // do not build Result from the lines if there were errors, as it might be ill-typed and produce unnecessary resolution errors
+        var resultOp = s.StepOps.Aggregate(s.Op, (op0, op1) => op1 == null ? op0 : op0.ResultOp(op1));
+        s.Result = resultOp.StepExpr(s.Lines.First(), s.Lines.Last());
+      } else {
+        s.Result = CalcStmt.DefaultOp.StepExpr(Expression.CreateIntLiteral(s.Tok, 0), Expression.CreateIntLiteral(s.Tok, 0));
+      }
+      ResolveExpression(s.Result, new Resolver.ResolveOpts(codeContext, true));
+      Contract.Assert(s.Result != null);
+      Contract.Assert(prevErrorCount != ErrorCount || s.Steps.Count == s.Hints.Count);
     }
 
     private void ResolveConcreteUpdateStmt(ConcreteUpdateStatement update, List<LocalVariable> locals, ICodeContext codeContext) {
