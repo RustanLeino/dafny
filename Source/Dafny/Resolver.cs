@@ -3030,8 +3030,10 @@ namespace Microsoft.Dafny {
 
       ResolvePass3(declarations, isAnExport, prevErrorCount);
 
-      // Verifies that, in all compiled places, subset types in comprehensions have a compilable constraint
-      new SubsetConstraintGhostChecker(this).Traverse(declarations);
+      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+        // Verifies that, in all compiled places, subset types in comprehensions have a compilable constraint
+        new SubsetConstraintGhostChecker(this).Traverse(declarations);
+      }
     }
 
     private void ResolvePass0(List<TopLevelDecl> declarations) {
