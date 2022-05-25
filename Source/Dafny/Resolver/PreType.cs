@@ -205,6 +205,9 @@ namespace Microsoft.Dafny {
           s = $"({Util.Comma(Arguments.GetRange(0, Arguments.Count - 1), arg => arg.ToString())})";
         }
         s += $" ~> {Arguments.Last()}";
+      } else if (IsTupleType(Decl)) {
+        // TODO: for tuple types, sometimes use prefix "ghost"
+        s = $"({Util.Comma(Arguments, arg => arg.ToString())})";
       } else {
         if (IsReferenceTypeDecl(Decl)) {
           name = name + "?";
@@ -249,7 +252,7 @@ namespace Microsoft.Dafny {
 
     public static bool IsTupleType(TopLevelDecl decl) {
       Contract.Requires(decl != null);
-      return decl.Name.StartsWith("(");
+      return BuiltIns.IsTupleTypeName(decl.Name);
     }
 
     public override PreType Substitute(Dictionary<TypeParameter, PreType> subst) {

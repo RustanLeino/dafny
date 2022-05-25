@@ -337,25 +337,30 @@ namespace Microsoft.Dafny {
         foreach (var arg in e.Args) {
           ResolveExpression(arg, opts);
         }
-
-        // TODO: the following should be replaced by a type-class constraint that constrains the types of e.Function, e.Args[*], and e.Type
-        var fnType = e.Function.Type.AsArrowType;
-        if (fnType == null) {
-          ReportError(e.tok, "non-function expression (of type {0}) is called with parameters", e.Function.Type);
-        } else if (fnType.Arity != e.Args.Count) {
-          ReportError(e.tok,
-            "wrong number of arguments to function application (function type '{0}' expects {1}, got {2})", fnType,
-            fnType.Arity, e.Args.Count);
-        } else {
-          for (var i = 0; i < fnType.Arity; i++) {
-            AddSubtypeConstraint(Type2PreType(fnType.Args[i]), e.Args[i].PreType, e.Args[i].tok,
-              "type mismatch for argument" + (fnType.Arity == 1 ? "" : " " + i) + " (function expects {0}, got {1})");
-          }
-        }
-        expr.Type = fnType == null ? new InferredTypeProxy() : fnType.Result;
-
         expr.PreType = CreatePreTypeProxy("apply expression result");
-        AddSubtypeConstraint(expr.PreType, Type2PreType(expr.Type), expr.tok, "function result '{1}' used as if it had type '{0}'");
+
+        AddGuardedConstraint(() => {
+          if (e.Function.PreType.Normalize() is DPreType dp) {
+            if (!DPreType.IsArrowType(dp.Decl)) {
+              ReportError(e.tok, "non-function expression (of type {0}) is called with parameters", e.Function.PreType);
+            } else {
+              var arity = dp.Decl.TypeArgs.Count - 1;
+              if (arity != e.Args.Count) {
+                ReportError(e.tok,
+                  "wrong number of arguments to function application (function type '{0}' expects {1}, got {2})", e.Function.PreType,
+                  arity, e.Args.Count);
+              } else {
+                for (var i = 0; i < arity; i++) {
+                  AddSubtypeConstraint(dp.Arguments[i], e.Args[i].PreType, e.Args[i].tok,
+                    "type mismatch for argument" + (arity == 1 ? "" : " " + i) + " (function expects {0}, got {1})");
+                }
+                AddSubtypeConstraint(expr.PreType, dp.Arguments[arity], expr.tok, "function result '{1}' used as if it had type '{0}'");
+              }
+            }
+            return true;
+          }
+          return false;
+        });
 
       } else if (expr is SeqConstructionExpr) {
         var e = (SeqConstructionExpr)expr;
@@ -1603,6 +1608,7 @@ namespace Microsoft.Dafny {
               ((ExtremePredicate)callee).Uses.Add(rr);
             }
             r = rr;
+            ResolveExpression(r, opts);
           } else {
             // resolve as an ApplyExpr
             var formals = new List<Formal>();
@@ -1614,6 +1620,7 @@ namespace Microsoft.Dafny {
             }
             ResolveActualParameters(e.Bindings, formals, e.tok, dp, opts, new Dictionary<TypeParameter, PreType>(), null);
             r = new ApplyExpr(e.Lhs.tok, e.Lhs, e.Args);
+            ResolveExpression(r, opts);
             r.PreType = dp.Arguments.Last();
           }
         } else {

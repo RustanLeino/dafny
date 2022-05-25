@@ -296,8 +296,8 @@ namespace Microsoft.Dafny {
           AddSubtypeConstraint(lhsPreType, rr.Expr.PreType, stmt.Tok, "RHS (of type {1}) not assignable to LHS (of type {0})");
         } else if (s.Rhs is TypeRhs) {
           var rr = (TypeRhs)s.Rhs;
-          Type t = ResolveTypeRhs(rr, stmt, codeContext);
-          AddSubtypeConstraint(lhsPreType, Type2PreType(t), stmt.Tok, "type {1} is not assignable to LHS (of type {0})");
+          ResolveTypeRhs(rr, stmt, codeContext);
+          AddSubtypeConstraint(lhsPreType, rr.PreType, stmt.Tok, "type {1} is not assignable to LHS (of type {0})");
         } else if (s.Rhs is HavocRhs) {
           // nothing else to do
         } else {
@@ -1195,131 +1195,122 @@ namespace Microsoft.Dafny {
 #endif
     }
 
-    Type ResolveTypeRhs(TypeRhs rr, Statement stmt, ICodeContext codeContext) {
+    void ResolveTypeRhs(TypeRhs rr, Statement stmt, ICodeContext codeContext) {
       Contract.Requires(rr != null);
       Contract.Requires(stmt != null);
       Contract.Requires(codeContext != null);
       Contract.Ensures(Contract.Result<Type>() != null);
 
-      if (rr.Type == null) {
-        if (rr.ArrayDimensions != null) {
-          // ---------- new T[EE]    OR    new T[EE] (elementInit)
-          Contract.Assert(rr.Bindings == null && rr.Path == null && rr.InitCall == null);
-          resolver.ResolveType(stmt.Tok, rr.EType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-          int i = 0;
-          foreach (var dim in rr.ArrayDimensions) {
-            ResolveExpression(dim, new Resolver.ResolveOpts(codeContext, false));
-            var indexHint = rr.ArrayDimensions.Count == 1 ? "" : " for index " + i;
-            AddConfirmation("InIntFamily", dim.PreType, dim.tok,
-              $"new must use an integer-based expression for the array size (got {{0}}{indexHint})");
-            i++;
+      if (rr.PreType != null) {
+        // the job's already been done
+        return;
+      }
+
+      if (rr.ArrayDimensions != null) {
+        // ---------- new T[EE]    OR    new T[EE] (elementInit)
+        var dims = rr.ArrayDimensions.Count;
+        Contract.Assert(rr.Bindings == null && rr.Path == null && rr.InitCall == null);
+        resolver.ResolveType(stmt.Tok, rr.EType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        int i = 0;
+        foreach (var dim in rr.ArrayDimensions) {
+          ResolveExpression(dim, new Resolver.ResolveOpts(codeContext, false));
+          var indexHint = dims == 1 ? "" : " for index " + i;
+          AddConfirmation("InIntFamily", dim.PreType, dim.tok,
+            $"new must use an integer-based expression for the array size (got {{0}}{indexHint})");
+          i++;
+        }
+        rr.PreType = BuiltInArrayType(dims, Type2PreType(rr.EType));
+        if (rr.ElementInit != null) {
+          ResolveExpression(rr.ElementInit, new Resolver.ResolveOpts(codeContext, false));
+          // Check (the pre-type version of)
+          //     nat^N -> rr.EType  :>  rr.ElementInit.Type
+          resolver.builtIns.CreateArrowTypeDecl(dims);  // TODO: should this be done already in the parser?
+          var indexPreTypes = Enumerable.Repeat(Type2PreType(resolver.builtIns.Nat()), dims).ToList();
+          var arrowPreType = BuiltInArrowType(indexPreTypes, Type2PreType(rr.EType));
+          AddSubtypeConstraint(arrowPreType, rr.ElementInit.PreType, rr.ElementInit.tok, () => {
+            var hintString = !PreType.Same(arrowPreType, rr.ElementInit.PreType) ? "" :
+              string.Format(" (perhaps write '{0} =>' in front of the expression you gave in order to make it an arrow type)",
+              dims == 1 ? "_" : "(" + Util.Comma(dims, x => "_") + ")");
+            return $"array-allocation initialization expression expected to have type '{{0}}' (instead got '{{1}}'){hintString}";
+          });
+        } else if (rr.InitDisplay != null) {
+          foreach (var v in rr.InitDisplay) {
+            ResolveExpression(v, new Resolver.ResolveOpts(codeContext, false));
+            AddSubtypeConstraint(Type2PreType(rr.EType), v.PreType, v.tok, "initial value must be assignable to array's elements (expected '{0}', got '{1}')");
           }
-          rr.Type = resolver.ResolvedArrayType(stmt.Tok, rr.ArrayDimensions.Count, rr.EType, codeContext, false);
-          if (rr.ElementInit != null) {
-#if SOON
-            ResolveExpression(rr.ElementInit, new Resolver.ResolveOpts(codeContext, false));
-            // Check
-            //     int^N -> rr.EType  :>  rr.ElementInit.Type
-            resolver.builtIns.CreateArrowTypeDecl(rr.ArrayDimensions.Count);  // TODO: should this be done already in the parser?
-            var args = new List<Type>();
-            for (var ii = 0; ii < rr.ArrayDimensions.Count; ii++) {
-              args.Add(resolver.builtIns.Nat());
-            }
-            var arrowType = new ArrowType(rr.ElementInit.tok, resolver.builtIns.ArrowTypeDecls[rr.ArrayDimensions.Count], args, rr.EType);
-            var lambdaType = rr.ElementInit.Type.AsArrowType;
-            if (lambdaType != null && lambdaType.TypeArgs[0] is InferredTypeProxy) {
-              (lambdaType.TypeArgs[0] as InferredTypeProxy).KeepConstraints = true;
-            }
-            string underscores;
-            if (rr.ArrayDimensions.Count == 1) {
-              underscores = "_";
-            } else {
-              underscores = "(" + Util.Comma(rr.ArrayDimensions.Count, x => "_") + ")";
-            }
-            var hintString = string.Format(" (perhaps write '{0} =>' in front of the expression you gave in order to make it an arrow type)", underscores);
-            ConstrainSubtypeRelation(arrowType, rr.ElementInit.Type, rr.ElementInit, "array-allocation initialization expression expected to have type '{0}' (instead got '{1}'){2}",
-              arrowType, rr.ElementInit.Type, new LazyString_OnTypeEquals(rr.EType, rr.ElementInit.Type, hintString));
-#endif
-          } else if (rr.InitDisplay != null) {
-            foreach (var v in rr.InitDisplay) {
-              ResolveExpression(v, new Resolver.ResolveOpts(codeContext, false));
-              AddSubtypeConstraint(Type2PreType(rr.EType), v.PreType, v.tok, "initial value must be assignable to array's elements (expected '{0}', got '{1}')");
-            }
+        }
+      } else {
+        bool callsConstructor = false;
+        if (rr.Bindings == null) {
+          resolver.ResolveType(stmt.Tok, rr.EType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
+          if (cl != null && !(rr.EType.IsTraitType && !rr.EType.NormalizeExpand().IsObjectQ)) {
+            // life is good
+          } else {
+            ReportError(stmt, "new can be applied only to class types (got {0})", rr.EType);
           }
         } else {
-          bool callsConstructor = false;
-          if (rr.Bindings == null) {
-            resolver.ResolveType(stmt.Tok, rr.EType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-            var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
-            if (cl != null && !(rr.EType.IsTraitType && !rr.EType.NormalizeExpand().IsObjectQ)) {
-              // life is good
-            } else {
-              ReportError(stmt, "new can be applied only to class types (got {0})", rr.EType);
-            }
-          } else {
 #if SOON
-            string initCallName = null;
-            IToken initCallTok = null;
-            // Resolve rr.Path and do one of three things:
-            // * If rr.Path denotes a type, then set EType,initCallName to rr.Path,"_ctor", which sets up a call to the anonymous constructor.
-            // * If the all-but-last components of rr.Path denote a type, then do EType,initCallName := allButLast(EType),last(EType)
-            // * Otherwise, report an error
-            var ret = ResolveTypeLenient(rr.Tok, rr.Path, codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null, true);
-            if (ret != null) {
-              // The all-but-last components of rr.Path denote a type (namely, ret.ReplacementType).
-              rr.EType = ret.ReplacementType;
-              initCallName = ret.LastComponent.SuffixName;
-              initCallTok = ret.LastComponent.tok;
-            } else {
-              // Either rr.Path resolved correctly as a type or there was no way to drop a last component to make it into something that looked
-              // like a type.  In either case, set EType,initCallName to Path,"_ctor" and continue.
-              rr.EType = rr.Path;
-              initCallName = "_ctor";
-              initCallTok = rr.Tok;
-            }
-            var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
-            if (cl == null || rr.EType.IsTraitType) {
-              ReportError(stmt, "new can be applied only to class types (got {0})", rr.EType);
-            } else {
-              // ---------- new C.Init(EE)
-              Contract.Assert(initCallName != null);
-              var prevErrorCount = ErrorCount;
+          string initCallName = null;
+          IToken initCallTok = null;
+          // Resolve rr.Path and do one of three things:
+          // * If rr.Path denotes a type, then set EType,initCallName to rr.Path,"_ctor", which sets up a call to the anonymous constructor.
+          // * If the all-but-last components of rr.Path denote a type, then do EType,initCallName := allButLast(EType),last(EType)
+          // * Otherwise, report an error
+          var ret = ResolveTypeLenient(rr.Tok, rr.Path, codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null, true);
+          if (ret != null) {
+            // The all-but-last components of rr.Path denote a type (namely, ret.ReplacementType).
+            rr.EType = ret.ReplacementType;
+            initCallName = ret.LastComponent.SuffixName;
+            initCallTok = ret.LastComponent.tok;
+          } else {
+            // Either rr.Path resolved correctly as a type or there was no way to drop a last component to make it into something that looked
+            // like a type.  In either case, set EType,initCallName to Path,"_ctor" and continue.
+            rr.EType = rr.Path;
+            initCallName = "_ctor";
+            initCallTok = rr.Tok;
+          }
+          var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
+          if (cl == null || rr.EType.IsTraitType) {
+            ReportError(stmt, "new can be applied only to class types (got {0})", rr.EType);
+          } else {
+            // ---------- new C.Init(EE)
+            Contract.Assert(initCallName != null);
+            var prevErrorCount = ErrorCount;
 
-              // We want to create a MemberSelectExpr for the initializing method.  To do that, we create a throw-away receiver of the appropriate
-              // type, create an dot-suffix expression around this receiver, and then resolve it in the usual way for dot-suffix expressions.
-              var lhs = new ImplicitThisExpr_ConstructorCall(initCallTok) { Type = rr.EType };
-              var callLhs = new ExprDotName(initCallTok, lhs, initCallName, ret == null ? null : ret.LastComponent.OptTypeArguments);
-              ResolveDotSuffix(callLhs, true, rr.Bindings.ArgumentBindings, new Resolver.ResolveOpts(codeContext, true), true);
-              if (prevErrorCount == ErrorCount) {
-                Contract.Assert(callLhs.ResolvedExpression is MemberSelectExpr);  // since ResolveApplySuffix succeeded and call.Lhs denotes an expression (not a module or a type)
-                var methodSel = (MemberSelectExpr)callLhs.ResolvedExpression;
-                if (methodSel.Member is Method) {
-                  rr.InitCall = new CallStmt(initCallTok, stmt.EndTok, new List<Expression>(), methodSel, rr.Bindings.ArgumentBindings);
-                  ResolveCallStmt(rr.InitCall, codeContext, rr.EType);
-                  if (rr.InitCall.Method is Constructor) {
-                    callsConstructor = true;
-                  }
-                } else {
-                  ReportError(initCallTok, "object initialization must denote an initializing method or constructor ({0})", initCallName);
+            // We want to create a MemberSelectExpr for the initializing method.  To do that, we create a throw-away receiver of the appropriate
+            // type, create an dot-suffix expression around this receiver, and then resolve it in the usual way for dot-suffix expressions.
+            var lhs = new ImplicitThisExpr_ConstructorCall(initCallTok) { Type = rr.EType };
+            var callLhs = new ExprDotName(initCallTok, lhs, initCallName, ret == null ? null : ret.LastComponent.OptTypeArguments);
+            ResolveDotSuffix(callLhs, true, rr.Bindings.ArgumentBindings, new Resolver.ResolveOpts(codeContext, true), true);
+            if (prevErrorCount == ErrorCount) {
+              Contract.Assert(callLhs.ResolvedExpression is MemberSelectExpr);  // since ResolveApplySuffix succeeded and call.Lhs denotes an expression (not a module or a type)
+              var methodSel = (MemberSelectExpr)callLhs.ResolvedExpression;
+              if (methodSel.Member is Method) {
+                rr.InitCall = new CallStmt(initCallTok, stmt.EndTok, new List<Expression>(), methodSel, rr.Bindings.ArgumentBindings);
+                ResolveCallStmt(rr.InitCall, codeContext, rr.EType);
+                if (rr.InitCall.Method is Constructor) {
+                  callsConstructor = true;
                 }
+              } else {
+                ReportError(initCallTok, "object initialization must denote an initializing method or constructor ({0})", initCallName);
               }
             }
+          }
 #endif
-          }
-          if (rr.EType.IsRefType) {
-            var udt = rr.EType.NormalizeExpand() as UserDefinedType;
-            if (udt != null) {
-              var cl = (ClassDecl)udt.ResolvedClass;  // cast is guaranteed by the call to rr.EType.IsRefType above, together with the "rr.EType is UserDefinedType" test
-              if (!callsConstructor && !cl.IsObjectTrait && !udt.IsArrayType && (cl.HasConstructor || cl.EnclosingModuleDefinition != currentClass.EnclosingModuleDefinition)) {
-                ReportError(stmt, "when allocating an object of {1}type '{0}', one of its constructor methods must be called", cl.Name,
-                  cl.HasConstructor ? "" : "imported ");
-              }
+        }
+        if (rr.EType.IsRefType) {
+          var udt = rr.EType.NormalizeExpand() as UserDefinedType;
+          if (udt != null) {
+            var cl = (ClassDecl)udt.ResolvedClass;  // cast is guaranteed by the call to rr.EType.IsRefType above, together with the "rr.EType is UserDefinedType" test
+            if (!callsConstructor && !cl.IsObjectTrait && !udt.IsArrayType && (cl.HasConstructor || cl.EnclosingModuleDefinition != currentClass.EnclosingModuleDefinition)) {
+              ReportError(stmt, "when allocating an object of {1}type '{0}', one of its constructor methods must be called", cl.Name,
+                cl.HasConstructor ? "" : "imported ");
             }
           }
-          rr.Type = rr.EType;
         }
+        rr.PreType = Type2PreType(rr.EType);
       }
-      return rr.Type;
     }
 
     /// <summary>

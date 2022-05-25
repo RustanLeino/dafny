@@ -298,7 +298,7 @@ namespace Microsoft.Dafny {
           //     Constrain beta :> b
           // else do nothing for now
           if (!(ptSuper.Decl is TraitDecl)) {
-            var arguments = CreateProxiesForTypesAccordingToVariance(ptSuper.Decl.TypeArgs, ptSuper.Arguments);
+            var arguments = CreateProxiesForTypesAccordingToVariance(constraint.tok, ptSuper.Decl.TypeArgs, ptSuper.Arguments, false);
             var pt = new DPreType(ptSuper.Decl, arguments);
             AddEqualityConstraint(sub, pt, constraint.tok, constraint.ErrorFormatString);
             used = true;
@@ -307,6 +307,7 @@ namespace Microsoft.Dafny {
           // We're looking at super :> D<a,b,c>
           // If the head of D has no proper supertypes (i.e., D has no parent traits), then
           //     Introduce alpha, beta
+          //     Constrain super == D<alpha, beta, c>
           //     Constrain alpha :> a
           //     Constrain b :> beta
           // else do nothing for now
@@ -315,9 +316,9 @@ namespace Microsoft.Dafny {
           } else if (DPreType.IsReferenceTypeDecl(ptSub.Decl) && !((ClassDecl)ptSub.Decl).IsObjectTrait) {
             // this is a non-object reference type, so it implicitly has "object" as a super-trait
           } else {
-            var arguments = CreateProxiesForTypesAccordingToVariance(ptSub.Decl.TypeArgs, ptSub.Arguments);
+            var arguments = CreateProxiesForTypesAccordingToVariance(constraint.tok, ptSub.Decl.TypeArgs, ptSub.Arguments, true);
             var pt = new DPreType(ptSub.Decl, arguments);
-            AddEqualityConstraint(pt, super, constraint.tok, constraint.ErrorFormatString);
+            AddEqualityConstraint(super, pt, constraint.tok, constraint.ErrorFormatString);
             used = true;
           }
         } else {
@@ -364,7 +365,17 @@ namespace Microsoft.Dafny {
       return null;
     }
 
-    List<PreType> CreateProxiesForTypesAccordingToVariance(List<TypeParameter> parameters, List<PreType> arguments) {
+    /// <summary>
+    /// For the given arguments: [a0, a1, a2, ...]
+    /// use the variance given by parameters: [p0, p1, p2, ...]
+    /// to return a list: [t0, t1, t2, ...]
+    /// where for each i,
+    ///   - if pi is Non, then ai
+    ///   - else if (pi is Co) == proxiesAreSupertypes, then a new proxy constrained by:  proxy :> ai
+    ///   - else a new proxy constrained by:  ai :> proxy
+    /// </summary>
+    List<PreType> CreateProxiesForTypesAccordingToVariance(IToken tok, List<TypeParameter> parameters, List<PreType> arguments, bool proxiesAreSupertypes) {
+      Contract.Requires(tok != null);
       Contract.Requires(parameters != null);
       Contract.Requires(arguments != null);
       Contract.Requires(parameters.Count == arguments.Count);
@@ -382,6 +393,11 @@ namespace Microsoft.Dafny {
           var co = tp.Variance == TypeParameter.TPVariance.Co ? "co" : "contra";
           var proxy = CreatePreTypeProxy($"type used in {co}variance constraint");
           newArgs.Add(proxy);
+          if ((tp.Variance == TypeParameter.TPVariance.Co) == proxiesAreSupertypes) {
+            AddSubtypeConstraint(proxy, arguments[i], tok, "bad");
+          } else {
+            AddSubtypeConstraint(arguments[i], proxy, tok, "bad");
+          }
         }
       }
       return newArgs;

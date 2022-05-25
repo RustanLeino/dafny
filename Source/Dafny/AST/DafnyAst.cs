@@ -7445,6 +7445,7 @@ namespace Microsoft.Dafny {
     public Type Path;
     [FilledInDuringResolution] public CallStmt InitCall;  // may be null (and is definitely null for arrays),
     [FilledInDuringResolution] public Type Type;
+    [FilledInDuringResolution] public PreType PreType;
     [ContractInvariantMethod]
     void ObjectInvariant() {
       Contract.Invariant(EType != null || Bindings != null);
