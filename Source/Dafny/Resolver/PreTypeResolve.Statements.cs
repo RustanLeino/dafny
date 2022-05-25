@@ -344,13 +344,13 @@ namespace Microsoft.Dafny {
       } else if (stmt is OneBodyLoopStmt oneBodyLoopStmt) {
         ResolveOneBodyLoopStmt(oneBodyLoopStmt, codeContext);
 
-#if SOON
       } else if (stmt is AlternativeLoopStmt) {
         var s = (AlternativeLoopStmt)stmt;
         ResolveAlternatives(s.Alternatives, s, codeContext);
         var usesHeapDontCare = false;
         ResolveLoopSpecificationComponents(s.Invariants, s.Decreases, s.Mod, codeContext, null, ref usesHeapDontCare);
 
+#if SOON
       } else if (stmt is ForallStmt) {
         var s = (ForallStmt)stmt;
 
