@@ -9187,7 +9187,7 @@ namespace Microsoft.Dafny {
     TopLevelDeclWithMembers currentClass;
     Method currentMethod;
     bool inBodyInitContext;  // "true" only if "currentMethod is Constructor"
-    readonly Scope<TypeParameter>/*!*/ allTypeParameters = new Scope<TypeParameter>();
+    internal readonly Scope<TypeParameter>/*!*/ allTypeParameters = new Scope<TypeParameter>();
     readonly Scope<IVariable>/*!*/ scope = new Scope<IVariable>();
     Scope<Statement>/*!*/ enclosingStatementLabels = new Scope<Statement>();
     readonly Scope<Label>/*!*/ dominatingStatementLabels = new Scope<Label>();

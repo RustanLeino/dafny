@@ -521,6 +521,57 @@ method LoopAlternatives(n: nat) {
   case a < b => a := a + 1;
 }
 
+module TypeParameterResolution {
+  type A
+
+  class Class<B> {
+    var aa: A
+    var bb: B
+    constructor()
+    method M<C>() {
+      var a: A;
+      var b: B;
+      var c: C;
+    }
+    function F<D>(a: A, b: B, d: D): int {
+      var a': A := a;
+      var b': B := b;
+      var d': D := d;
+      3
+    }
+  }
+
+  type SS<X(!new)> = o: int | assert forall x: X :: var y: X := x; true; 0 <= o witness *
+
+  datatype Datatype<B> = Ctor {
+    method M<C>() {
+      var a: A;
+      var b: B;
+      var c: C;
+    }
+    function F<D>(a: A, b: B, d: D): int {
+      var a': A := a;
+      var b': B := b;
+      var d': D := d;
+      3
+    }
+  }
+
+  type Opaque<B> {
+    method M<C>() {
+      var a: A;
+      var b: B;
+      var c: C;
+    }
+    function F<D>(a: A, b: B, d: D): int {
+      var a': A := a;
+      var b': B := b;
+      var d': D := d;
+      3
+    }
+  }
+}
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************

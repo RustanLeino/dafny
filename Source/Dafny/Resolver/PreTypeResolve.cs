@@ -18,7 +18,6 @@ using Bpl = Microsoft.Boogie;
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
     private readonly Resolver resolver;
-    private readonly Scope<TypeParameter> allTypeParameters = new();
     private readonly Scope<IVariable> scope = new();
 
     TopLevelDeclWithMembers currentClass;
@@ -362,7 +361,7 @@ namespace Microsoft.Dafny {
         foreach (var d in declarations) {
           Contract.Assert(resolver.VisibleInScope(d));
 
-          allTypeParameters.PushMarker();
+          resolver.allTypeParameters.PushMarker();
           ResolveTypeParameters(d.TypeArgs, false, d);
 
           ResolveTopLevelDeclaration(d, initialResolutionPass);
@@ -379,7 +378,7 @@ namespace Microsoft.Dafny {
             currentClass = null;
           }
 
-          allTypeParameters.PopMarker();
+          resolver.allTypeParameters.PopMarker();
         }
 
         if (initialResolutionPass) {
@@ -527,7 +526,7 @@ namespace Microsoft.Dafny {
           tp.Parent = parent;
           tp.PositionalIndex = index;
         }
-        var r = allTypeParameters.Push(tp.Name, tp);
+        var r = resolver.allTypeParameters.Push(tp.Name, tp);
         if (emitErrors) {
           if (r == Scope<TypeParameter>.PushResult.Duplicate) {
             ReportError(tp, "Duplicate type-parameter name: {0}", tp.Name);
@@ -650,32 +649,32 @@ namespace Microsoft.Dafny {
 
       } else if (member is Function f) {
         var ec = ErrorCount;
-        allTypeParameters.PushMarker();
+        resolver.allTypeParameters.PushMarker();
         ResolveTypeParameters(f.TypeArgs, false, f);
         ResolveFunction(f);
-        allTypeParameters.PopMarker();
+        resolver.allTypeParameters.PopMarker();
         
         if (f is ExtremePredicate extremePredicate && extremePredicate.PrefixPredicate != null && ec == ErrorCount) {
           var ff = extremePredicate.PrefixPredicate;
-          allTypeParameters.PushMarker();
+          resolver.allTypeParameters.PushMarker();
           ResolveTypeParameters(ff.TypeArgs, false, ff);
           ResolveFunction(ff);
-          allTypeParameters.PopMarker();
+          resolver.allTypeParameters.PopMarker();
         }
 
       } else if (member is Method m) {
         var ec = ErrorCount;
-        allTypeParameters.PushMarker();
+        resolver.allTypeParameters.PushMarker();
         ResolveTypeParameters(m.TypeArgs, false, m);
         ResolveMethod(m);
-        allTypeParameters.PopMarker();
+        resolver.allTypeParameters.PopMarker();
         
         if (m is ExtremeLemma em && em.PrefixLemma != null && ec == ErrorCount) {
           var mm = em.PrefixLemma;
-          allTypeParameters.PushMarker();
+          resolver.allTypeParameters.PushMarker();
           ResolveTypeParameters(mm.TypeArgs, false, mm);
           ResolveMethod(mm);
-          allTypeParameters.PopMarker();
+          resolver.allTypeParameters.PopMarker();
         }
 
       } else {
