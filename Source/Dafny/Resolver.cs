@@ -13089,8 +13089,12 @@ namespace Microsoft.Dafny {
         } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
           // add the statements here in a sequence, but don't use that sequence later for translation (instead, should translate properly as multi-assignment)
 #if PRETYPE
-          Contract.Assert(update.ResolvedStatements.Count == update.Lhss.Count);
-          update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+          if (update.ResolvedStatements.Count == 0) {
+            // it could be that the update statement was part of something that gets replaced after pre-type resolution, so we won't do any further sanity check here
+          } else {
+            Contract.Assert(update.ResolvedStatements.Count == update.Lhss.Count);
+            update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+          }
 #endif
           for (int i = 0; i < update.Lhss.Count; i++) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[i].Resolved, update.Rhss[i]);

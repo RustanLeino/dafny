@@ -229,31 +229,27 @@ namespace Microsoft.Dafny {
       } else if (stmt is VarDeclStmt varDeclStmt) {
         ResolveConcreteUpdateStmt(varDeclStmt.Update, varDeclStmt.Locals, codeContext);
 
-#if SOON
       } else if (stmt is VarDeclPattern) {
-        VarDeclPattern s = (VarDeclPattern)stmt;
+        var s = (VarDeclPattern)stmt;
         foreach (var local in s.LocalVars) {
           int prevErrorCount = ErrorCount;
-          ResolveType(local.Tok, local.OptionalType, codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
-          if (ErrorCount == prevErrorCount) {
-            local.type = local.OptionalType;
-          } else {
-            local.type = new InferredTypeProxy();
-          }
+          resolver.ResolveType(local.Tok, local.OptionalType, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          local.type = ErrorCount == prevErrorCount ? local.type = local.OptionalType : new InferredTypeProxy();
+          local.PreType = Type2PreType(local.type);
         }
         ResolveExpression(s.RHS, new Resolver.ResolveOpts(codeContext, true));
-        ResolveCasePattern(s.LHS, s.RHS.Type, codeContext);
+        ResolveCasePattern(s.LHS, s.RHS.PreType, codeContext);
         // Check for duplicate names now, because not until after resolving the case pattern do we know if identifiers inside it refer to bound variables or nullary constructors
         var c = 0;
         foreach (var bv in s.LHS.Vars) {
-          ScopePushAndReport(scope, bv, "local_variable");
+          ScopePushAndReport(scope, bv.Name, bv, bv.Tok, "local variable");
           c++;
         }
         if (c == 0) {
           // Every identifier-looking thing in the pattern resolved to a constructor; that is, this LHS is a constant literal
           ReportError(s.LHS.tok, "LHS is a constant literal; to be legal, it must introduce at least one bound variable");
         }
-#endif
+
       } else if (stmt is AssignStmt) {
         var s = (AssignStmt)stmt;
         int prevErrorCount = ErrorCount;
@@ -525,11 +521,11 @@ namespace Microsoft.Dafny {
 #if SOON
       } else if (stmt is MatchStmt matchStmt) {
         ResolveMatchStmt(matchStmt, codeContext);
+#endif
 
       } else if (stmt is NestedMatchStmt nestedMatchStmt) {
         var opts = new Resolver.ResolveOpts(codeContext, false);
         ResolveNestedMatchStmt(nestedMatchStmt, opts);
-#endif
 
       } else if (stmt is SkeletonStatement skeletonStatement) {
         ReportError(stmt.Tok, "skeleton statements are allowed only in refining methods");

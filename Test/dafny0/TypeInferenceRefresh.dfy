@@ -459,6 +459,35 @@ method Modify(b: bool) {
   }
 }
 
+module Patterns {
+  datatype Color = Red | Gray(n: nat)
+
+  method VarPattern(c: Color) returns (x: int) {
+    if c != Red {
+      var Gray(mm) := c;
+      x := mm;
+    }
+  }
+
+  method M(c: Color) returns (x: int) {
+    match c
+    case Red =>
+    case Gray(oo) => x := oo;
+  }
+
+  function LetPattern(c: Color): int {
+    if c == Red then 3 else
+      var Gray(pp) := c;
+      pp
+  }
+
+  function F(c: Color): int {
+    match c
+    case Red => 3
+    case Gray(oo) => oo
+  }
+}
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************

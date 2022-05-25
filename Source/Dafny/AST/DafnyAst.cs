@@ -12582,7 +12582,14 @@ namespace Microsoft.Dafny {
       this.Tok = tok;
       this.IsGhost = isGhost;
     }
+
+    /// <summary>
+    /// Vars returns the variables declared in the pattern. It is intended to be called after resolution, since
+    /// it is resolution that determines if the ExtendedPattern stands for a variable or something else.
+    /// </summary>
+    public abstract IEnumerable<IVariable> Vars { get; }
   }
+
   public class LitPattern : ExtendedPattern {
     public readonly Expression OrigLit;  // the expression as parsed; typically a LiteralExpr, but could be a NegationExpression
 
@@ -12638,20 +12645,28 @@ namespace Microsoft.Dafny {
     public override string ToString() {
       return Printer.ExprToString(OrigLit);
     }
+
+    public override IEnumerable<IVariable> Vars {
+      get {
+        yield break;
+      }
+    }
   }
 
   public class IdPattern : ExtendedPattern {
-    public readonly String Id;
+    public readonly string Id;
     public readonly Type Type; // This is the syntactic type, ExtendedPatterns dissapear during resolution.
     public List<ExtendedPattern> Arguments; // null if just an identifier; possibly empty argument list if a constructor call
     public LiteralExpr ResolvedLit; // null if just an identifier
+    public IVariable Var; // non-null if just an identifier
+    public DatatypeCtor Ctor; // null if just an identifier
     public PreType PreType;
 
     public void MakeAConstructor() {
       this.Arguments = new List<ExtendedPattern>();
     }
 
-    public IdPattern(IToken tok, String id, List<ExtendedPattern> arguments, bool isGhost = false) : base(tok, isGhost) {
+    public IdPattern(IToken tok, string id, List<ExtendedPattern> arguments, bool isGhost = false) : base(tok, isGhost) {
       Contract.Requires(id != null);
       Contract.Requires(arguments != null); // Arguments can be empty, but shouldn't be null
       this.Id = id;
@@ -12659,7 +12674,7 @@ namespace Microsoft.Dafny {
       this.Arguments = arguments;
     }
 
-    public IdPattern(IToken tok, String id, Type type, List<ExtendedPattern> arguments, bool isGhost = false) : base(tok, isGhost) {
+    public IdPattern(IToken tok, string id, Type type, List<ExtendedPattern> arguments, bool isGhost = false) : base(tok, isGhost) {
       Contract.Requires(id != null);
       Contract.Requires(arguments != null); // Arguments can be empty, but shouldn't be null
       this.Id = id;
@@ -12669,11 +12684,25 @@ namespace Microsoft.Dafny {
     }
 
     public override string ToString() {
-      if (Arguments == null || Arguments.Count == 0) {
+      if (Arguments == null) {
         return Id;
       } else {
-        List<string> cps = Arguments.ConvertAll<string>(x => x.ToString());
-        return string.Format("{0}({1})", Id, String.Join(", ", cps));
+        return string.Format("{0}({1})", Id, Util.Comma(Arguments, arg => arg.ToString()));
+      }
+    }
+
+    public override IEnumerable<IVariable> Vars {
+      get {
+        if (Var != null) {
+          yield return Var;
+        }
+        if (Arguments != null) {
+          foreach (var arg in Arguments) {
+            foreach (var v in arg.Vars) {
+              yield return v;
+            }
+          }
+        }
       }
     }
   }

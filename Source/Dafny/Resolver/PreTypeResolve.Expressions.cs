@@ -509,6 +509,11 @@ namespace Microsoft.Dafny {
       } else if (expr is LetExpr) {
         var e = (LetExpr)expr;
         if (e.Exact) {
+          foreach (var bv in e.BoundVars) {
+            int prevErrorCount = ErrorCount;
+            resolver.ResolveType(bv.Tok, bv.Type, opts.codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+            bv.PreType = Type2PreType(bv.Type);
+          }
           foreach (var rhs in e.RHSs) {
             ResolveExpression(rhs, opts);
           }
@@ -1806,6 +1811,10 @@ namespace Microsoft.Dafny {
       return rewrite;
     }
 
+    /// <summary>
+    /// Resolves the case pattern "pat", figuring out if it denotes a variable or a constructor (or is in error).
+    /// The caller is expected to have filled in the .type and .PreType fields of any variable occurring in "pat".
+    /// </summary>
     void ResolveCasePattern<VT>(CasePattern<VT> pat, PreType sourcePreType, ICodeContext context) where VT : IVariable {
       Contract.Requires(pat != null);
       Contract.Requires(sourcePreType != null);
@@ -1815,21 +1824,22 @@ namespace Microsoft.Dafny {
       List<PreType> sourceTypeArguments = null;
       // Find the constructor in the given datatype
       // If what was parsed was just an identifier, we will interpret it as a datatype constructor, if possible
+      DatatypeCtor ctor = null;
       if (dtd != null) {
         sourceTypeArguments = ((DPreType)sourcePreType.Normalize()).Arguments;
         if (pat.Var == null || (pat.Var != null && pat.Var.Type is TypeProxy)) {
-          if (resolver.datatypeCtors[dtd].TryGetValue(pat.Id, out var datatypeCtor)) {
+          if (resolver.datatypeCtors[dtd].TryGetValue(pat.Id, out ctor)) {
             if (pat.Arguments == null) {
-              if (datatypeCtor.Formals.Count != 0) {
+              if (ctor.Formals.Count != 0) {
                 // Leave this as a variable
               } else {
                 // Convert to a constructor
                 pat.MakeAConstructor();
-                pat.Ctor = datatypeCtor;
+                pat.Ctor = ctor;
                 pat.Var = default(VT);
               }
             } else {
-              pat.Ctor = datatypeCtor;
+              pat.Ctor = ctor;
               pat.Var = default(VT);
             }
           }
@@ -1842,8 +1852,7 @@ namespace Microsoft.Dafny {
         if (context.IsGhost) {
           v.MakeGhost();
         }
-        resolver.ResolveType(v.Tok, v.Type, context, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
-        v.PreType = Type2PreType(v.Type);
+        Contract.Assert(v.PreType != null);
 #if SOON
         AddTypeDependencyEdges(context, v.Type);
 #endif
@@ -1862,7 +1871,6 @@ namespace Microsoft.Dafny {
         return;
       }
 
-      DatatypeCtor ctor = null;
       if (dtd == null) {
         // look up the name of the pattern's constructor
         if (resolver.moduleInfo.Ctors.TryGetValue(pat.Id, out var pair) && !pair.Item2) {
