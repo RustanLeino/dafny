@@ -112,6 +112,16 @@ namespace Microsoft.Dafny {
       return decl;
     }
 
+    DPreType BuiltInArrowType(List<PreType> inPreTypes, PreType resultPreType) {
+      return new DPreType(BuiltInArrowTypeDecl(inPreTypes.Count), Util.Snoc(inPreTypes, resultPreType));
+    }
+
+    DPreType BuiltInArrayType(int dims, PreType elementPreType) {
+      Contract.Requires(1 <= dims);
+      var arrayName = dims == 1 ? "array" : $"array{dims}";
+      return new DPreType(BuiltInTypeDecl(arrayName), new List<PreType>() { elementPreType });
+    }
+
     private int typeProxyCount = 0; // used to give each PreTypeProxy a unique ID
 
     private readonly List<(PreTypeProxy, string)> allPreTypeProxies = new();

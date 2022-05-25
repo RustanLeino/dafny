@@ -251,7 +251,7 @@ namespace Microsoft.Dafny {
 
         ResolveExpression(e.Array, opts);
         var elementPreType = CreatePreTypeProxy("multi-dim array select");
-        var arrayPreType = new DPreType(BuiltInTypeDecl($"array{e.Indices.Count}"), new List<PreType>() { elementPreType });
+        var arrayPreType = BuiltInArrayType(e.Indices.Count, elementPreType);
         AddSubtypeConstraint(arrayPreType, e.Array.PreType, e.Array.tok, "array selection requires an {0} (got {1})");
         int i = 0;
         foreach (var indexExpression in e.Indices) {
@@ -654,9 +654,7 @@ namespace Microsoft.Dafny {
         }
         ResolveExpression(e.Term, opts);
         scope.PopMarker();
-        var typeArguments = e.BoundVars.ConvertAll(v => v.PreType);
-        typeArguments.Add(e.Body.PreType);
-        expr.PreType = new DPreType(BuiltInArrowTypeDecl(e.BoundVars.Count), typeArguments);
+        expr.PreType = BuiltInArrowType(e.BoundVars.ConvertAll(v => v.PreType), e.Body.PreType);
 
       } else if (expr is WildcardExpr) {
         var obj = new DPreType(BuiltInTypeDecl("object?"), new List<PreType>() {});
@@ -1514,9 +1512,7 @@ namespace Microsoft.Dafny {
         subst = BuildPreTypeArgumentSubstitute(subst, receiverPreTypeBound);
         var inParamTypes = function.Formals.ConvertAll(f => f.PreType.Substitute(subst));
         var resultType = Type2PreType(function.ResultType).Substitute(subst);
-        var arity = inParamTypes.Count;
-        var typeArgsAndResult = Util.Snoc(inParamTypes, resultType);
-        rr.PreType = new DPreType(BuiltInArrowTypeDecl(arity), typeArgsAndResult);
+        rr.PreType = BuiltInArrowType(inParamTypes, resultType);
 #if SOON
         AddCallGraphEdge(opts.codeContext, function, rr, IsFunctionReturnValue(function, args, opts));
 #endif
