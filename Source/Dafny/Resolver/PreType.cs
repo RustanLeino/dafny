@@ -199,7 +199,7 @@ namespace Microsoft.Dafny {
 
       if (IsArrowType(Decl)) {
         var a0 = Arguments[0].Normalize() as DPreType;
-        if (Arguments.Count == 2 && a0 != null && !IsTupleType(a0.Decl) && !IsArrowType(a0.Decl)) {
+        if (Arguments.Count == 2 && (a0 == null || (!IsTupleType(a0.Decl) && !IsArrowType(a0.Decl)))) {
           s = Arguments[0].ToString();
         } else {
           s = $"({Util.Comma(Arguments.GetRange(0, Arguments.Count - 1), arg => arg.ToString())})";

@@ -1116,11 +1116,16 @@ namespace Microsoft.Dafny {
     }
 
     public void PrintPreType(PreType preType) {
+      wr.Write(PreTypeString(preType));
+    }
+
+    public string PreTypeString(PreType preType) {
       if (DafnyOptions.O.DafnyPrintResolvedFile != null) {
 #if PRETYPE
-        wr.Write($"/*{preType}*/");
+        return $"/*{preType}*/";
 #endif
       }
+      return "";
     }
 
     public static string TPCharacteristicsSuffix(TypeParameter.TypeParameterCharacteristics characteristics) {
@@ -2693,7 +2698,7 @@ namespace Microsoft.Dafny {
         if (parensNeeded) { wr.Write("("); }
         var skipSignatureParens = e.BoundVars.Count == 1 && !ShowType(e.BoundVars[0].Type);
         if (!skipSignatureParens) { wr.Write("("); }
-        wr.Write(Util.Comma(e.BoundVars, bv => bv.DisplayName + (ShowType(bv.Type) ? ": " + bv.Type : "")));
+        wr.Write(Util.Comma(e.BoundVars, bv => bv.DisplayName + (ShowType(bv.Type) ? $": {bv.Type}{PreTypeString(bv.PreType)}" : "")));
         if (!skipSignatureParens) { wr.Write(")"); }
         if (e.Range != null) {
           wr.Write(" requires ");
