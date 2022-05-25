@@ -488,6 +488,31 @@ module Patterns {
   }
 }
 
+method WhileLoops() returns (k: int) {
+  var i := 250;
+  while 2 < i {
+    i := i - 1;
+    k := k + i;
+  }
+  var ii := 0;
+  while ii < 10 {
+    var u: RomanC := ii;
+    ii := ii + 1;
+  }
+}
+
+method ForLoops() returns (k: int) {
+  for i := 250 downto 2 {
+    k := k + i;
+  }
+  for i := 0 to 10
+  {
+    var u: RomanC := i;
+  }
+}
+
+newtype RomanC = x | 0 <= x < 100
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************
@@ -637,4 +662,17 @@ predicate method downup_search'(n: int, d: nat)
     downup_search'(n, d + 1)
   */
 }
+
+// ------------------
+// The following used to not work:
+module OrderingIssue_PreviouslyBroken {
+  newtype N = x: MM | 0 <= x < 100
+  newtype MM = x | 0 <= x < 100
+}
+// whereas the following did work.
+module OrderingIssue_Fine {
+  newtype MM = x | 0 <= x < 100
+  newtype N = x: MM | 0 <= x < 100
+}
+
 ****************************************************************************************/

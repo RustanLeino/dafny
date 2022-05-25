@@ -341,75 +341,10 @@ namespace Microsoft.Dafny {
         var s = (AlternativeStmt)stmt;
         ResolveAlternatives(s.Alternatives, null, codeContext);
 
+      } else if (stmt is OneBodyLoopStmt oneBodyLoopStmt) {
+        ResolveOneBodyLoopStmt(oneBodyLoopStmt, codeContext);
+
 #if SOON
-      } else if (stmt is OneBodyLoopStmt) {
-        var s = (OneBodyLoopStmt)stmt;
-        var fvs = new HashSet<IVariable>();
-        var usesHeap = false;
-        if (s is WhileStmt whileS && whileS.Guard != null) {
-          ResolveExpression(whileS.Guard, new Resolver.ResolveOpts(codeContext, true));
-          FreeVariablesUtil.ComputeFreeVariables(whileS.Guard, fvs, ref usesHeap);
-          ConstrainTypeExprBool(whileS.Guard, "condition is expected to be of type bool, but is {0}");
-        } else if (s is ForLoopStmt forS) {
-          var loopIndex = forS.LoopIndex;
-          int prevErrorCount = ErrorCount;
-          ResolveType(loopIndex.Tok, loopIndex.Type, codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
-          var err = new TypeConstraint.ErrorMsgWithToken(loopIndex.Tok, "index variable is expected to be of an integer type (got {0})", loopIndex.Type);
-          ConstrainToIntegerType(loopIndex.Tok, loopIndex.Type, false, err);
-          fvs.Add(loopIndex);
-
-          ResolveExpression(forS.Start, new Resolver.ResolveOpts(codeContext, true));
-          FreeVariablesUtil.ComputeFreeVariables(forS.Start, fvs, ref usesHeap);
-          AddAssignableConstraint(forS.Start.tok, forS.LoopIndex.Type, forS.Start.Type, "lower bound (of type {1}) not assignable to index variable (of type {0})");
-          if (forS.End != null) {
-            ResolveExpression(forS.End, new Resolver.ResolveOpts(codeContext, true));
-            FreeVariablesUtil.ComputeFreeVariables(forS.End, fvs, ref usesHeap);
-            AddAssignableConstraint(forS.End.tok, forS.LoopIndex.Type, forS.End.Type, "upper bound (of type {1}) not assignable to index variable (of type {0})");
-            if (forS.Decreases.Expressions.Count != 0) {
-              ReportError(forS.Decreases.Expressions[0].tok,
-                "a 'for' loop is allowed an explicit 'decreases' clause only if the end-expression is '*'");
-            }
-          } else if (forS.Decreases.Expressions.Count == 0 && !codeContext.AllowsNontermination) {
-            // note, the following error message is also emitted elsewhere (if the loop bears a "decreases *")
-            ReportError(forS.Tok,
-              "a possibly infinite loop is allowed only if the enclosing method is declared (with 'decreases *') to be possibly non-terminating" +
-              " (or you can add a 'decreases' clause to this 'for' loop if you want to prove that it does indeed terminate)");
-          }
-
-          // Create a new scope, add the local to the scope, and resolve the attributes
-          scope.PushMarker();
-          ScopePushAndReport(scope, loopIndex, "index-variable");
-          ResolveAttributes(s, new Resolver.ResolveOpts(codeContext, true, false));
-        }
-
-        ResolveLoopSpecificationComponents(s.Invariants, s.Decreases, s.Mod, codeContext, fvs, ref usesHeap);
-
-        if (s.Body != null) {
-          loopStack.Add(s);  // push
-          dominatingStatementLabels.PushMarker();
-          ResolveStatement(s.Body, codeContext);
-          dominatingStatementLabels.PopMarker();
-          loopStack.RemoveAt(loopStack.Count - 1);  // pop
-        } else {
-          Contract.Assert(s.BodySurrogate == null);  // .BodySurrogate is set only once
-          var loopFrame = new List<IVariable>();
-          if (s is ForLoopStmt forLoopStmt) {
-            loopFrame.Add(forLoopStmt.LoopIndex);
-          }
-          loopFrame.AddRange(fvs.Where(fv => fv.IsMutable));
-          s.BodySurrogate = new WhileStmt.LoopBodySurrogate(loopFrame, usesHeap);
-          var text = Util.Comma(s.BodySurrogate.LocalLoopTargets, fv => fv.Name);
-          if (s.BodySurrogate.UsesHeap) {
-            text += text.Length == 0 ? "$Heap" : ", $Heap";
-          }
-          text = string.Format("note, this loop has no body{0}", text.Length == 0 ? "" : " (loop frame: " + text + ")");
-          reporter.Warning(MessageSource.Resolver, s.Tok, text);
-        }
-
-        if (s is ForLoopStmt) {
-          scope.PopMarker();
-        }
-
       } else if (stmt is AlternativeLoopStmt) {
         var s = (AlternativeLoopStmt)stmt;
         ResolveAlternatives(s.Alternatives, s, codeContext);
@@ -505,7 +440,6 @@ namespace Microsoft.Dafny {
           }
         }
 #endif
-
       } else if (stmt is ModifyStmt modifyStmt) {
         ResolveAttributes(modifyStmt.Mod, new Resolver.ResolveOpts(codeContext, true), false);
         foreach (FrameExpression fe in modifyStmt.Mod.Expressions) {
@@ -536,6 +470,80 @@ namespace Microsoft.Dafny {
 
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();
+      }
+    }
+
+    private void ResolveOneBodyLoopStmt(OneBodyLoopStmt s, ICodeContext codeContext) {
+      Contract.Requires(s != null);
+      Contract.Requires(codeContext != null);
+
+      var fvs = new HashSet<IVariable>();
+      var usesHeap = false;
+
+      if (s is WhileStmt whileS && whileS.Guard != null) {
+        ResolveExpression(whileS.Guard, new Resolver.ResolveOpts(codeContext, true));
+        FreeVariablesUtil.ComputeFreeVariables(whileS.Guard, fvs, ref usesHeap);
+        ConstrainTypeExprBool(whileS.Guard, "condition is expected to be of type bool, but is {0}");
+
+      } else if (s is ForLoopStmt forS) {
+        var loopIndex = forS.LoopIndex;
+        resolver.ResolveType(loopIndex.tok, loopIndex.Type, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        loopIndex.PreType = Type2PreType(loopIndex.Type);
+        AddConfirmation("InIntFamily", loopIndex.PreType, loopIndex.tok, "index variable is expected to be of an integer type (got {0})");
+        fvs.Add(loopIndex);
+
+        ResolveExpression(forS.Start, new Resolver.ResolveOpts(codeContext, true));
+        FreeVariablesUtil.ComputeFreeVariables(forS.Start, fvs, ref usesHeap);
+        AddSubtypeConstraint(loopIndex.PreType, forS.Start.PreType, forS.Start.tok,
+          "lower bound (of type {1}) not assignable to index variable (of type {0})");
+        if (forS.End != null) {
+          ResolveExpression(forS.End, new Resolver.ResolveOpts(codeContext, true));
+          FreeVariablesUtil.ComputeFreeVariables(forS.End, fvs, ref usesHeap);
+          AddSubtypeConstraint(loopIndex.PreType, forS.End.PreType, forS.End.tok,
+            "upper bound (of type {1}) not assignable to index variable (of type {0})");
+          if (forS.Decreases.Expressions.Count != 0) {
+            ReportError(forS.Decreases.Expressions[0].tok,
+              "a 'for' loop is allowed an explicit 'decreases' clause only if the end-expression is '*'");
+          }
+        } else if (forS.Decreases.Expressions.Count == 0 && !codeContext.AllowsNontermination) {
+          // note, the following error message is also emitted elsewhere (if the loop bears a "decreases *")
+          ReportError(forS.Tok,
+            "a possibly infinite loop is allowed only if the enclosing method is declared (with 'decreases *') to be possibly non-terminating" +
+            " (or you can add a 'decreases' clause to this 'for' loop if you want to prove that it does indeed terminate)");
+        }
+
+        // Create a new scope, add the local to the scope, and resolve the attributes
+        scope.PushMarker();
+        ScopePushAndReport(loopIndex, "index-variable", false);
+        ResolveAttributes(s, new Resolver.ResolveOpts(codeContext, true), false);
+      }
+
+      ResolveLoopSpecificationComponents(s.Invariants, s.Decreases, s.Mod, codeContext, fvs, ref usesHeap);
+
+      if (s.Body != null) {
+        loopStack.Add(s); // push
+        dominatingStatementLabels.PushMarker();
+        ResolveStatement(s.Body, codeContext);
+        dominatingStatementLabels.PopMarker();
+        loopStack.RemoveAt(loopStack.Count - 1); // pop
+      } else {
+        Contract.Assert(s.BodySurrogate == null); // .BodySurrogate is set only once
+        var loopFrame = new List<IVariable>();
+        if (s is ForLoopStmt forLoopStmt) {
+          loopFrame.Add(forLoopStmt.LoopIndex);
+        }
+        loopFrame.AddRange(fvs.Where(fv => fv.IsMutable));
+        s.BodySurrogate = new WhileStmt.LoopBodySurrogate(loopFrame, usesHeap);
+        var text = Util.Comma(s.BodySurrogate.LocalLoopTargets, fv => fv.Name);
+        if (s.BodySurrogate.UsesHeap) {
+          text += text.Length == 0 ? "$Heap" : ", $Heap";
+        }
+        text = string.Format("note, this loop has no body{0}", text.Length == 0 ? "" : " (loop frame: " + text + ")");
+        ReportWarning(s.Tok, text);
+      }
+
+      if (s is ForLoopStmt) {
+        scope.PopMarker();
       }
     }
 
@@ -813,6 +821,44 @@ namespace Microsoft.Dafny {
 
       ResolveExpression(s.Expr, new Resolver.ResolveOpts(codeContext, true));
       ConstrainTypeExprBool(s.Expr, "type of RHS of assign-such-that statement must be boolean (got {0})");
+    }
+
+    private void ResolveLoopSpecificationComponents(List<AttributedExpression> invariants,
+      Specification<Expression> decreases, Specification<FrameExpression> modifies,
+      ICodeContext codeContext, HashSet<IVariable> fvs, ref bool usesHeap) {
+      Contract.Requires(invariants != null);
+      Contract.Requires(decreases != null);
+      Contract.Requires(modifies != null);
+      Contract.Requires(codeContext != null);
+
+      foreach (AttributedExpression inv in invariants) {
+        ResolveAttributes(inv, new Resolver.ResolveOpts(codeContext, true), false);
+        ResolveExpression(inv.E, new Resolver.ResolveOpts(codeContext, true));
+        if (fvs != null) {
+          FreeVariablesUtil.ComputeFreeVariables(inv.E, fvs, ref usesHeap);
+        }
+        ConstrainTypeExprBool(inv.E, "invariant is expected to be of type bool, but is {0}");
+      }
+
+      ResolveAttributes(decreases, new Resolver.ResolveOpts(codeContext, true), false);
+      foreach (Expression e in decreases.Expressions) {
+        ResolveExpression(e, new Resolver.ResolveOpts(codeContext, true));
+        if (e is WildcardExpr && !codeContext.AllowsNontermination) {
+          ReportError(e, "a possibly infinite loop is allowed only if the enclosing method is declared (with 'decreases *') to be possibly non-terminating");
+        }
+        if (fvs != null) {
+          FreeVariablesUtil.ComputeFreeVariables(e, fvs, ref usesHeap);
+        }
+        // any type is fine
+      }
+
+      ResolveAttributes(modifies, new Resolver.ResolveOpts(codeContext, true), false);
+      if (modifies.Expressions != null) {
+        usesHeap = true;  // bearing a modifies clause counts as using the heap
+        foreach (var fe in modifies.Expressions) {
+          ResolveFrameExpression(fe, Resolver.FrameExpressionUse.Modifies, codeContext);
+        }
+      }
     }
 
     /// <summary>
