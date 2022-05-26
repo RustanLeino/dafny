@@ -588,6 +588,62 @@ module FunctionApplications {
   }
 }
 
+module ForallStmt {
+  method AggregateAssignment(s: set<int>, a: array<real>)
+    requires forall x :: x in s ==> 0 <= x < a.Length
+    modifies a
+  {
+    forall i | i in s {
+      a[i] := 35.50;
+    }
+  }
+
+  function Plus(x: nat, y: nat): nat {
+    if x == 0 then y else 1 + Plus(x - 1, y)
+  }
+
+  lemma DistributePlus(a: nat, x: nat, y: nat)
+    ensures Plus(a + x, y) == a + Plus(x, y)
+  {
+    if a != 0 {
+      calc {
+        Plus(a + x, y);
+      ==
+        1 + Plus(a - 1 + x, y);
+      ==  { DistributePlus(a - 1, x, y); }
+        1 + (a - 1) + Plus(x, y);
+      ==
+        a + Plus(x, y);
+      }
+    }
+  }
+
+  lemma Associative(x: nat, y: nat, z: nat)
+    ensures Plus(Plus(x, y), z) == Plus(x, Plus(y, z))
+  {
+    if x != 0 {
+      calc {
+        Plus(Plus(x, y), z);
+      ==  // def. Plus
+        Plus(1 + Plus(x - 1, y), z);
+      ==  // def. Plus
+        1 + Plus(Plus(x - 1, y), z);
+      ==  { Associative(x - 1, y, z); }
+        1 + Plus(x - 1, Plus(y, z));
+      ==  // def. Plus
+        Plus(x, Plus(y, z));
+      }
+    }
+  }
+
+  lemma AllAssociative()
+    ensures forall x, y, z :: Plus(Plus(x, y), z) == Plus(x, Plus(y, z))
+  {
+    forall x, y, z {
+      Associative(x, y, z);
+    }
+  }
+}
 
 /****************************************************************************************
  ******** TO DO *************************************************************************

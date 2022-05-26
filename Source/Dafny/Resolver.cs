@@ -13118,6 +13118,10 @@ namespace Microsoft.Dafny {
               reporter.Error(MessageSource.Resolver, tr.Tok, "can only have initialization methods which modify at most 'this'.");
             } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
               var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[0].Resolved, tr);
+#if PRETYPE
+              Contract.Assert(update.ResolvedStatements.Count == 1);
+              update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+#endif
               update.ResolvedStatements.Add(a);
             }
           }
@@ -13134,6 +13138,10 @@ namespace Microsoft.Dafny {
             reporter.Error(MessageSource.Resolver, update.Lhss[1].tok, "the number of left-hand sides ({0}) and right-hand sides ({1}) must match for a multi-assignment", update.Lhss.Count, update.Rhss.Count);
           } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
             var a = new AssignStmt(update.Tok, update.EndTok, update.Lhss[0].Resolved, update.Rhss[0]);
+#if PRETYPE
+            Contract.Assert(update.ResolvedStatements.Count == 1);
+            update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+#endif
             update.ResolvedStatements.Add(a);
           }
         } else if (reporter.Count(ErrorLevel.Error) == errorCountBeforeCheckingLhs) {
@@ -13144,6 +13152,10 @@ namespace Microsoft.Dafny {
           }
           CallStmt a = new CallStmt(methodCallInfo.Tok, update.EndTok, resolvedLhss, methodCallInfo.Callee, methodCallInfo.ActualParameters);
           a.OriginalInitialLhs = update.OriginalInitialLhs;
+#if PRETYPE
+          Contract.Assert(update.ResolvedStatements.Count == 1);
+          update.ResolvedStatements.Clear(); // clear what pre-type resolution did
+#endif
           update.ResolvedStatements.Add(a);
         }
       }

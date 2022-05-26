@@ -350,15 +350,14 @@ namespace Microsoft.Dafny {
         var usesHeapDontCare = false;
         ResolveLoopSpecificationComponents(s.Invariants, s.Decreases, s.Mod, codeContext, null, ref usesHeapDontCare);
 
-#if SOON
       } else if (stmt is ForallStmt) {
         var s = (ForallStmt)stmt;
 
         int prevErrorCount = ErrorCount;
         scope.PushMarker();
         foreach (BoundVar v in s.BoundVars) {
-          ScopePushAndReport(scope, v, "local-variable");
-          ResolveType(v.tok, v.Type, codeContext, ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, codeContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          ScopePushAndReport(v, "local-variable");
         }
         ResolveExpression(s.Range, new Resolver.ResolveOpts(codeContext, true));
         ConstrainTypeExprBool(s.Range, "range restriction in forall statement must be of type bool (instead got {0})");
@@ -380,7 +379,7 @@ namespace Microsoft.Dafny {
           enclosingStatementLabels = prevLblStmts;
           loopStack = prevLoopStack;
         } else {
-          reporter.Warning(MessageSource.Resolver, s.Tok, "note, this forall statement has no body");
+          ReportWarning(s.Tok, "note, this forall statement has no body");
         }
         scope.PopMarker();
 
@@ -422,13 +421,13 @@ namespace Microsoft.Dafny {
               // add the conclusion of the calc as a free postcondition
               var result = ((CalcStmt)s0).Result;
               s.Ens.Add(new AttributedExpression(result));
-              reporter.Info(MessageSource.Resolver, s.Tok, "ensures " + Printer.ExprToString(result));
+              ReportInfo(s.Tok, "ensures " + Printer.ExprToString(result));
             } else {
               s.Kind = ForallStmt.BodyKind.Proof;
               if (s.Body is BlockStmt && ((BlockStmt)s.Body).Body.Count == 0) {
                 // an empty statement, so don't produce any warning
               } else {
-                reporter.Warning(MessageSource.Resolver, s.Tok, "the conclusion of the body of this forall statement will not be known outside the forall statement; consider using an 'ensures' clause");
+                ReportWarning(s.Tok, "the conclusion of the body of this forall statement will not be known outside the forall statement; consider using an 'ensures' clause");
               }
             }
           }
@@ -439,7 +438,7 @@ namespace Microsoft.Dafny {
             }
           }
         }
-#endif
+
       } else if (stmt is ModifyStmt modifyStmt) {
         ResolveAttributes(modifyStmt.Mod, new Resolver.ResolveOpts(codeContext, true), false);
         foreach (FrameExpression fe in modifyStmt.Mod.Expressions) {
@@ -692,7 +691,11 @@ namespace Microsoft.Dafny {
       if (rhs is TypeRhs tr) {
         ResolveTypeRhs(tr, enclosingStmt, codeContext);
       } else if (rhs is ExprRhs er) {
-        ResolveExpression(er.Expr, new Resolver.ResolveOpts(codeContext, true));
+        if (er.Expr is ApplySuffix applySuffix) {
+          ResolveApplySuffix(applySuffix, new Resolver.ResolveOpts(codeContext, true), true);
+        } else {
+          ResolveExpression(er.Expr, new Resolver.ResolveOpts(codeContext, true));
+        }
       } else {
         Contract.Assert(rhs is HavocRhs);
       }
