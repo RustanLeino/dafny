@@ -370,7 +370,7 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.N, opts);
         ConstrainToIntFamily(e.N.PreType, e.N.tok, "sequence construction must use an integer-based expression for the sequence size (got {0})");
         ResolveExpression(e.Initializer, opts);
-        var intPreType = new DPreType(BuiltInTypeDecl("int"), this);
+        var intPreType = Type2PreType(resolver.builtIns.Nat());
         var arrowPreType = new DPreType(BuiltInArrowTypeDecl(1), new List<PreType>() { intPreType, elementPreType });
         var resultPreType = new DPreType(BuiltInTypeDecl("seq"), new List<PreType>() { elementPreType });
         AddSubtypeConstraint(arrowPreType, e.Initializer.PreType, e.Initializer.tok,
@@ -991,32 +991,32 @@ namespace Microsoft.Dafny {
       Contract.Requires(memberName != null);
 
       receiverPreType = receiverPreType.Normalize();
-      TopLevelDecl receiverDecl = null;
+      DPreType dReceiver = null;
       if (receiverPreType is PreTypeProxy proxy) {
         // If there is a subtype constraint "proxy :> sub<X>", then (if the program is legal at all, then) "sub" must have the member "memberName".
         foreach (var sub in AllSubBounds(proxy, new HashSet<PreTypeProxy>())) {
-          receiverDecl = sub.Decl as TopLevelDeclWithMembers; // this may come back as null, but that's fine--then, we'll just report an error below
+          dReceiver = sub;
           break;
         }
-        if (receiverDecl == null) {
+        if (dReceiver == null) {
           // If there is a subtype constraint "super<X> :> proxy" where "super" has a member "memberName", then that is the correct member.
           foreach (var super in AllSuperBounds(proxy, new HashSet<PreTypeProxy>())) {
             if (super.Decl is TopLevelDeclWithMembers md && resolver.classMembers[md].ContainsKey(memberName)) {
-              receiverDecl = md;
+              dReceiver = super;
               break;
             }
           }
         }
-        if (receiverDecl == null) {
+        if (dReceiver == null) {
           ReportError(tok, "type of the receiver is not fully determined at this program point");
           return (null, null);
         }
       } else {
-        var dp = (DPreType)receiverPreType;
-        receiverDecl = dp.Decl;
+        dReceiver = (DPreType)receiverPreType;
       }
-      Contract.Assert(receiverDecl != null);
+      Contract.Assert(dReceiver != null);
 
+      var receiverDecl = dReceiver.Decl;
       if (receiverDecl is TopLevelDeclWithMembers receiverDeclWithMembers) {
         // TODO: does this case need to do something like this?  var cd = ctype?.AsTopLevelTypeWithMembersBypassInternalSynonym;
 
@@ -1030,12 +1030,12 @@ namespace Microsoft.Dafny {
         } else if (resolver.VisibleInScope(member)) {
           // TODO: We should return the original "member", not an overridden member. Alternatively, we can just return "member" so that the
           // caller can figure out the types, and then a later pass can figure out which particular "member" is intended.
-          return (member, new DPreType(receiverDecl, this));
+          return (member, dReceiver);
         }
 
       } else if (receiverDecl is ValuetypeDecl valuetypeDecl) {
         if (valuetypeDecl.Members.TryGetValue(memberName, out var member)) {
-          return (member, new DPreType(receiverDecl, this));
+          return (member, dReceiver);
         }
       }
       ReportError(tok, $"member '{memberName}' does not exist in {receiverDecl.WhatKind} '{receiverDecl.Name}'");

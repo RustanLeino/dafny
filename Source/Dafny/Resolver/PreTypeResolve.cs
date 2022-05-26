@@ -132,44 +132,65 @@ namespace Microsoft.Dafny {
       return proxy;
     }
 
-    public PreType Type2PreType(Type type, string description = null, Type printableType = null) {
+    public enum Type2PreTypeOption { GoodForInference, GoodForPrinting, GoodForBoth }
+
+    public PreType Type2PreType(Type type, string description = null, Type2PreTypeOption option = Type2PreTypeOption.GoodForBoth) {
       Contract.Requires(type != null);
 
-      printableType ??= type.Normalize();
+      type = type.Normalize();
+      if (type is TypeProxy) {
+        return CreatePreTypeProxy(description ?? $"from type proxy {type}");
+      } else if (type is SelfType) {
+        return CreatePreTypeProxy("self type"); // TODO: handle this differently
+      }
+
+      PreType printablePreType = null;
+      if (option != Type2PreTypeOption.GoodForInference) {
+        var printableDecl = Type2PreTypeDecl(type);
+        var printableArguments = type.TypeArgs.ConvertAll(ty => Type2PreType(ty, null, Type2PreTypeOption.GoodForPrinting));
+        printablePreType = new DPreType(printableDecl, printableArguments, null);
+        if (option == Type2PreTypeOption.GoodForPrinting) {
+          return printablePreType;
+        }
+      }
+
       type = type.NormalizeExpand();
+      var decl = Type2PreTypeDecl(type);
+      var arguments = type.TypeArgs.ConvertAll(ty => Type2PreType(ty, null, Type2PreTypeOption.GoodForInference));
+      return new DPreType(decl, arguments, printablePreType);
+    }
+
+    TopLevelDecl Type2PreTypeDecl(Type type) {
+      Contract.Requires(type != null);
+      Contract.Requires(type is NonProxyType && !(type is SelfType));
+      TopLevelDecl decl;
       if (type is BoolType) {
-        return new DPreType(BuiltInTypeDecl("bool"), this, printableType);
+        decl = BuiltInTypeDecl("bool");
       } else if (type is CharType) {
-        return new DPreType(BuiltInTypeDecl("char"), this, printableType);
+        decl = BuiltInTypeDecl("char");
       } else if (type is IntType) {
-        return new DPreType(BuiltInTypeDecl("int"), this, printableType);
+        decl = BuiltInTypeDecl("int");
       } else if (type is RealType) {
-        return new DPreType(BuiltInTypeDecl("real"), this, printableType);
+        decl = BuiltInTypeDecl("real");
       } else if (type is BigOrdinalType) {
-        return new DPreType(BuiltInTypeDecl("ORDINAL"), this, printableType);
+        decl = BuiltInTypeDecl("ORDINAL");
       } else if (type is BitvectorType bitvectorType) {
-        return new DPreType(BuiltInTypeDecl("bv" + bitvectorType.Width), this, printableType);
+        decl = BuiltInTypeDecl("bv" + bitvectorType.Width);
       } else if (type is CollectionType) {
         var name =
           type is SetType st ? (st.Finite ? "set" : "iset") :
           type is MultiSetType ? "multiset" :
           type is MapType mt ? (mt.Finite ? "map" : "imap") :
           "seq";
-        var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
-        return new DPreType(BuiltInTypeDecl(name), args, printableType);
+        decl = BuiltInTypeDecl(name);
       } else if (type is ArrowType at) {
-        var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
-        return new DPreType(BuiltInArrowTypeDecl(at.Arity), args);
+        decl = BuiltInArrowTypeDecl(at.Arity);
       } else if (type is UserDefinedType udt) {
-        var args = type.TypeArgs.ConvertAll(ty => Type2PreType(ty));
-        return new DPreType(udt.ResolvedClass, args, printableType);
-      } else if (type is TypeProxy) {
-        return CreatePreTypeProxy(description ?? $"from type proxy {type}");
-      } else if (type is SelfType) {
-        return CreatePreTypeProxy("self type"); // TODO: handle this differently
+        decl = udt.ResolvedClass;
       } else {
         Contract.Assert(false); throw new cce.UnreachableException();  // unexpected type
       }
+      return decl;
     }
 
     /// <summary>
