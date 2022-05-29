@@ -80,7 +80,7 @@ namespace Microsoft.Dafny {
           new List<Type> { new InferredTypeProxy() }, true);
         decl = resolver.builtIns.arrayTypeDecls[dims];
       } else if (IsBitvectorName(name, out var width)) {
-        var bvDecl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, 0, t => t.IsBitVectorType, null);
+        var bvDecl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, t => t.IsBitVectorType, null);
         var bvType = new BitvectorType(width);
         resolver.AddRotateMember(bvDecl, "RotateLeft", new SelfType());
         resolver.AddRotateMember(bvDecl, "RotateRight", new SelfType());
@@ -94,8 +94,15 @@ namespace Microsoft.Dafny {
           }
         }
         if (decl == null) {
-          var typeParameterCount = name == "set" || name == "iset" || name == "seq" || name == "multiset" ? 1 : 0;
-          decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, typeParameterCount, _ => false, null);
+          if (name == "set" || name == "seq" || name == "multiset") {
+            var variances = new List<TypeParameter.TPVarianceSyntax>() { TypeParameter.TPVarianceSyntax.Covariant_Strict };
+            decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false, null);
+          } else if (name == "iset") {
+            var variances = new List<TypeParameter.TPVarianceSyntax>() { TypeParameter.TPVarianceSyntax.Covariant_Permissive };
+            decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false, null);
+          } else {
+            decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, _ => false, null);
+          }
         }
       }
       preTypeBuiltins.Add(name, decl);
@@ -104,9 +111,14 @@ namespace Microsoft.Dafny {
 
     TopLevelDecl BuiltInArrowTypeDecl(int arity) {
       Contract.Requires(0 <= arity);
-      var name = $"~>{arity}";
+      var name = $"{arity}~>";
       if (!preTypeBuiltins.TryGetValue(name, out var decl)) {
-        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, arity + 1, _ => false, null);
+        var variances = new List<TypeParameter.TPVarianceSyntax>();
+        for (var i = 0; i < arity; i++) {
+          variances.Add(TypeParameter.TPVarianceSyntax.Contravariance);
+        }
+        variances.Add(TypeParameter.TPVarianceSyntax.Covariant_Strict);
+        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false, null);
         preTypeBuiltins.Add(name, decl);
       }
       return decl;

@@ -645,6 +645,28 @@ module ForallStmt {
   }
 }
 
+module Variance {
+  method CollectionVariance<X>(b: array<X>) returns (r: set<object>, o: object, m: map<object, object>) {
+    o := b;
+    r := {b};
+    m := map[o := o];
+    m := map[b := o];
+    m := map[o := b];
+  }
+
+  method ArrowCovariance<A, B, X>(arr: array<X>) returns (f: () -> object, g: A -> object, h: (A, B) -> object) {
+    f := () => arr;
+    g := a => arr;
+    h := (a, b) => arr;
+  }
+
+  method ArrowContraariance<A, B, X>(arr: array<X>) returns (f: () -> int, g: array<X> -> int, h: (array<X>, array<X>) -> int) {
+    f := () => 3;
+    g := (a: object) => 4;
+    h := (a: array?<X>, b: object) => 5;
+  }
+}
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************

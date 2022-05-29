@@ -357,7 +357,7 @@ namespace Microsoft.Dafny {
         }
         // If "md" is a reference type, its parents implicitly contain "object", but "object" might not be explicitly included in .ParentTraits.
         // We handle it here.
-        if (DPreType.IsReferenceTypeDecl(md)) {
+        if (DPreType.IsReferenceTypeDecl(md) && DPreType.IsReferenceTypeDecl(super)) {
           // "md" is a reference type, so "object" is a parent, and "object" has no type arguments
           return new List<PreType>();
         }
