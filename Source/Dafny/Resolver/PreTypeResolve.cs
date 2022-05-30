@@ -1030,32 +1030,70 @@ namespace Microsoft.Dafny {
       Contract.Requires(fe != null);
       Contract.Requires(codeContext != null);
       ResolveExpression(fe.E, new Resolver.ResolveOpts(codeContext, codeContext is TwoStateLemma || use == Resolver.FrameExpressionUse.Unchanged));
-      var eventualRefType = new InferredTypeProxy();
-#if TODO
-      Type t = fe.E.Type;
-      if (use == Resolver.FrameExpressionUse.Reads) {
-        AddXConstraint(fe.E.tok, "ReadsFrame", t, eventualRefType,
-          "a reads-clause expression must denote an object, a set/iset/multiset/seq of objects, or a function to a set/iset/multiset/seq of objects (instead got {0})");
-      } else {
-        AddXConstraint(fe.E.tok, "ModifiesFrame", t, eventualRefType,
-          use == Resolver.FrameExpressionUse.Modifies ?
-          "a modifies-clause expression must denote an object or a set/iset/multiset/seq of objects (instead got {0})" :
-          "an unchanged expression must denote an object or a set/iset/multiset/seq of objects (instead got {0})");
-      }
-#endif
-      if (fe.FieldName != null) {
-        var (member, tentativeReceiverType) = FindMember(fe.E.tok, Type2PreType(eventualRefType), fe.FieldName);
-        Contract.Assert((member == null) == (tentativeReceiverType == null)); // follows from contract of FindMember
-        if (member == null) {
-          // error has already been reported by FindMember
-        } else if (!(member is Field)) {
-          ReportError(fe.E, "member {0} in type {1} does not refer to a field", fe.FieldName, tentativeReceiverType.Decl.Name);
-        } else if (member is ConstantField) {
-          ReportError(fe.E, "expression is not allowed to refer to constant field {0}", fe.FieldName);
-        } else {
-          fe.Field = (Field)member;
+      AddGuardedConstraint(() => {
+        DPreType dp = fe.E.PreType.Normalize() as DPreType;
+        if (dp == null) {
+          // no information yet
+          return false;
         }
-      }
+        // A FrameExpression is allowed to have one of the following types:
+        //     C
+        //     collection<C>
+        // where C is a reference type and collection is set, iset, seq, or multiset.
+        // In a reads clause, a FrameExpression is additionally allowed to have type
+        //     ... ~> collection<C>
+        // A FrameExpression can also specify a field name using the syntax FE`fieldName,
+        // which is allowed if fieldName is a field of C.
+        var hasArrowType = false;
+        var hasCollectionType = false;
+        if (use == Resolver.FrameExpressionUse.Reads && DPreType.IsArrowType(dp.Decl)) {
+          hasArrowType = true;
+          dp = dp.Arguments.Last().Normalize() as DPreType;
+          if (dp == null) {
+            // function's image type not yet known
+            return false;
+          }
+        }
+        if (dp.Decl.Name == "set" || dp.Decl.Name == "iset" || dp.Decl.Name == "seq" || dp.Decl.Name == "multiset") {
+          hasCollectionType = true;
+          dp = dp.Arguments[0].Normalize() as DPreType;
+          if (dp == null) {
+            // element type not yet known
+            return false;
+          }
+        }
+
+        if (!DPreType.IsReferenceTypeDecl(dp.Decl) || (hasArrowType && !hasCollectionType)) {
+          var expressionMustDenoteObject = "expression must denote an object";
+          var collection = "a set/iset/multiset/seq of objects";
+          var instead =  "(instead got {0})";
+          var errorMsgFormat = use switch {
+            Resolver.FrameExpressionUse.Reads =>
+              $"a reads-clause {expressionMustDenoteObject}, {collection}, or a function to {collection} {instead}",
+            Resolver.FrameExpressionUse.Modifies =>
+              $"a modifies-clause {expressionMustDenoteObject} or {collection} {instead}",
+            Resolver.FrameExpressionUse.Unchanged =>
+              $"an unchanged {expressionMustDenoteObject} or {collection} {instead}"
+          };
+          ReportError(fe.E.tok, errorMsgFormat, fe.E.PreType);
+        }
+
+        if (fe.FieldName != null) {
+          var (member, tentativeReceiverType) = FindMember(fe.E.tok, dp, fe.FieldName);
+          Contract.Assert((member == null) == (tentativeReceiverType == null)); // follows from contract of FindMember
+          if (member == null) {
+            // error has already been reported by FindMember
+          } else if (!(member is Field)) {
+            ReportError(fe.E, "member {0} in type {1} does not refer to a field", fe.FieldName, tentativeReceiverType.Decl.Name);
+          } else if (member is ConstantField) {
+            ReportError(fe.E, "expression is not allowed to refer to constant field {0}", fe.FieldName);
+          } else {
+            fe.Field = (Field)member;
+          }
+        }
+
+        return true;
+      });
     }
 
     void CheckTypeInference(Expression expr, ICodeContext codeContext) {

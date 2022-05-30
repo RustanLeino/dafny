@@ -689,6 +689,74 @@ module PartiallySolveBeforeFindingNames {
   }
 }
 
+module Frames {
+  class C {
+    var x: int
+    var y: int
+  }
+
+  function A0(): set<C>
+  function A1(): iset<C>
+  function A2(): seq<C>
+  function A3(): multiset<C>
+
+  function F(o: object, s: set<C>, ss: iset<C>, sq: seq<C>, ms: multiset<C>): int
+    reads o
+    reads s
+    reads ss
+    reads sq
+    reads ms
+    reads s`x
+    reads ss`x
+    reads sq`x
+    reads ms`x
+    reads A0
+    reads A1
+    reads A2
+    reads A3
+    reads A0`x
+    reads A1`x
+    reads A2`x
+    reads A3`x
+
+  method M(o: object, s: set<C>, ss: iset<C>, sq: seq<C>, ms: multiset<C>)
+    modifies o
+    modifies s
+    modifies ss
+    modifies sq
+    modifies ms
+    modifies s`x
+    modifies ss`x
+    modifies sq`x
+    modifies ms`x
+  {
+    modify o;
+    modify s;
+    modify ss;
+    modify sq;
+    modify ms;
+    modify s`x;
+    modify ss`x;
+    modify sq`x;
+    modify ms`x;
+  }
+
+  method U(oo: set<object>, o: object, s: set<C>, ss: iset<C>, sq: seq<C>, ms: multiset<C>)
+    modifies oo
+    ensures unchanged(o)
+    ensures unchanged(s)
+    ensures unchanged(ss)
+    ensures unchanged(sq)
+    ensures unchanged(ms)
+    ensures unchanged(s`x)
+    ensures unchanged(ss`x)
+    ensures unchanged(sq`x)
+    ensures unchanged(ms`x)
+  {
+  }
+}
+
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************
