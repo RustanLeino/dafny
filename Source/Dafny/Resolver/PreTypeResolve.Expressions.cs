@@ -966,11 +966,11 @@ namespace Microsoft.Dafny {
 
     private void ConstrainOperandTypes(IToken tok, string opString, Expression e0, Expression e1, PreType resultPreType) {
       if (e0 != null) {
-        AddEqualityConstraint(resultPreType, e0.PreType, tok,
+        AddSubtypeConstraint(resultPreType, e0.PreType, tok,
           $"type of left argument to {opString} ({{1}}) must agree with the result type ({{0}})");
       }
       if (e1 != null) {
-        AddEqualityConstraint(resultPreType, e1.PreType, tok,
+        AddSubtypeConstraint(resultPreType, e1.PreType, tok,
           $"type of right argument to {opString} ({{1}}) must agree with the result type ({{0}})");
       }
     }
@@ -990,6 +990,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(receiverPreType != null);
       Contract.Requires(memberName != null);
 
+      PartiallySolveTypeConstraints();
       receiverPreType = receiverPreType.Normalize();
       DPreType dReceiver = null;
       if (receiverPreType is PreTypeProxy proxy) {
@@ -1048,6 +1049,7 @@ namespace Microsoft.Dafny {
     DPreType/*?*/ FindDefinedPreType(PreType preType) {
       Contract.Requires(preType != null);
 
+      PartiallySolveTypeConstraints();
       preType = preType.Normalize();
       if (preType is PreTypeProxy proxy) {
         // We're looking a type with concerns for traits, so if the proxy has any sub- or super-type, then (if the

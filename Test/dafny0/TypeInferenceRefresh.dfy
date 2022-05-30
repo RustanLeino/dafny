@@ -667,6 +667,28 @@ module Variance {
   }
 }
 
+module ReferenceTypeParents {
+  class Vector<X> { }
+
+  method M<X>(arr: array<X>, v: Vector<X>) returns (repr: set<object>) {
+    repr := {v, arr};
+  }
+
+  method E<X>(arr: array<X>, r: set<object>) returns (repr: set<object>) {
+    repr := r + {arr};
+  }
+}
+
+module PartiallySolveBeforeFindingNames {
+  datatype Option<X> = None | Some(value: X)
+  method GetIt<X>(i: nat, arr: array<Option<X>>)
+    requires i < arr.Length && arr[i].Some?
+  {
+    var a := arr[i];
+    var b := a.value;
+  }
+}
+
 /****************************************************************************************
  ******** TO DO *************************************************************************
  ****************************************************************************************
@@ -726,9 +748,8 @@ datatype Tree =
 // has type nat, so it should hold — and in fact just uncommenting the definition of fn above solves the issue… even if fn isn’t used.
  
 
-
 // ------------------
-// Can the following example (from Sean) be improved to not need the explicit seq32<Principal> type annotations?
+// Can the following example (from S) be improved to not need the explicit seq32<Principal> type annotations?
 
 type seq32<X> = s: seq<X> | |s| < 0x8000_0000
 function method seqSize<X>(s: seq32<X>): nat32 {

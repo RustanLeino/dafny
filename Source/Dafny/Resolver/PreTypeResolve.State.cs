@@ -506,13 +506,24 @@ namespace Microsoft.Dafny {
         if (d is TopLevelDeclWithMembers dm) {
           dm.ParentTraitHeads.Iter(parent => ComputeAncestors(parent, ancestors));
         }
+        if (d is ClassDecl cl && cl.IsObjectTrait) {
+          // we're done
+        } else if (DPreType.IsReferenceTypeDecl(d)) {
+          // object is also a parent type
+          ComputeAncestors(resolver.builtIns.ObjectDecl, ancestors);
+        }
       }
     }
 
     int Height(TopLevelDecl d) {
-      if (d is TopLevelDeclWithMembers md) {
-        var maxAmongParents = md.ParentTraitHeads.Count == 0 ? 0 : md.ParentTraitHeads.Max(Height);
-        return maxAmongParents + 1;
+      if (d is TopLevelDeclWithMembers md && md.ParentTraitHeads.Count != 0) {
+        return md.ParentTraitHeads.Max(Height) + 1;
+      } else if (d is ClassDecl cl && cl.IsObjectTrait) {
+        // object is at height 0
+        return 0;
+      } else if (DPreType.IsReferenceTypeDecl(d)) {
+        // any other reference type implicitly has "object" as a parent, so the height is 1
+        return 1;
       } else {
         return 0;
       }
