@@ -30,7 +30,6 @@ namespace Microsoft.Dafny {
       do {
         anythingChanged = false;
         anythingChanged |= ApplySubtypeConstraints();
-        anythingChanged |= ApplyComparableConstraints();
         anythingChanged |= ApplyGuardedConstraints();
         if (makeDecisions) {
           if (DecideHeadsFromBounds(true)) {
@@ -59,7 +58,6 @@ namespace Microsoft.Dafny {
 
     void ClearState() {
       unnormalizedSubtypeConstraints.Clear();
-      comparableConstraints.Clear();
       guardedConstraints.Clear();
       defaultAdvice.Clear();
       confirmations.Clear();
@@ -74,9 +72,6 @@ namespace Microsoft.Dafny {
       PrintList("Subtype constraints", unnormalizedSubtypeConstraints, stc => {
         return $"{stc.Super} :> {stc.Sub}";
       });
-      PrintList("Comparable constraints", comparableConstraints, cc => {
-        return $"{cc.A} ~~ {cc.B}";
-      });
 #if IS_THERE_A_GOOD_WAY_TO_PRINT_GUARDED_CONSTRAINTS
       PrintList("Guarded constraints", guardedConstraints, gc => {
         return gc.Kind + Util.Comma("", gc.Arguments, arg => $" {arg}");
@@ -85,9 +80,11 @@ namespace Microsoft.Dafny {
       PrintList("Default-type advice", defaultAdvice, advice => {
         return $"{advice.PreType} ~-~-> {advice.WhatString}";
       });
+#if IS_THERE_A_GOOD_WAY_TO_PRINT_CONFIRMATIONS
       PrintList("Post-inference confirmations", confirmations, c => {
         return $"{TokToShortLocation(c.tok)}: {c.Check} {c.PreType}: {c.ErrorMessage()}";
       });
+#endif
     }
 
     void PrintLegend() {
@@ -108,7 +105,7 @@ namespace Microsoft.Dafny {
       Console.WriteLine($"    {rubric}:");
       foreach (var t in list) {
         var info = $"        {formatter(t)}";
-        if (t is PreTypeStateWithErrorMessage preTypeStateWithErrorMessage && !(preTypeStateWithErrorMessage is Confirmation)) {
+        if (t is PreTypeStateWithErrorMessage preTypeStateWithErrorMessage) {
           info = $"{Pad(info, 30)}  {TokToShortLocation(preTypeStateWithErrorMessage.tok)}: {preTypeStateWithErrorMessage.ErrorMessage()}";
         }
         Console.WriteLine(info);
@@ -160,6 +157,46 @@ namespace Microsoft.Dafny {
         return pt.Arguments.Any(arg => Occurs(proxy, arg));
       } else {
         return proxy == t;
+      }
+    }
+
+    // ---------------------------------------- Comparable constraints ----------------------------------------
+
+    void AddComparableConstraint(PreType a, PreType b, IToken tok, string errorFormatString) {
+      Contract.Requires(a != null);
+      Contract.Requires(b != null);
+      Contract.Requires(tok != null);
+      Contract.Requires(errorFormatString != null);
+      AddGuardedConstraint(() => ApplyComparableConstraints(a, b, tok, errorFormatString));
+    }
+
+    bool ApplyComparableConstraints(PreType a, PreType b, IToken tok, string errorFormatString) {
+      // The meaning of a comparable constraint
+      //     A ~~ B
+      // is the disjunction
+      //     A :> B    or    B :> A
+      // To decide between these two possibilities, enough information must be available about A and/or B.
+      var ptA = a.Normalize() as DPreType;
+      var ptB = b.Normalize() as DPreType;
+      if (ptA != null && ptB != null &&
+          AdaptTypeArgumentsForParent(ptB.Decl, ptA.Decl, ptA.Arguments) == null &&
+          AdaptTypeArgumentsForParent(ptA.Decl, ptB.Decl, ptB.Arguments) == null) {
+        // neither A :> B nor B :> A is possible
+        ReportError(tok, errorFormatString, a, b);
+        return true;
+      } else if ((ptA != null && ptA.IsLeafType()) || (ptB != null && ptB.IsRootType())) {
+        // use B :> A
+        DebugPrint($"    DEBUG: turning ~~ into {b} :> {a}");
+        AddSubtypeConstraint(b, a, tok, errorFormatString);
+        return true;
+      } else if ((ptA != null && ptA.IsRootType()) || (ptB != null && ptB.IsLeafType())) {
+        // use A :> B
+        DebugPrint($"    DEBUG: turning ~~ into {a} :> {b}");
+        AddSubtypeConstraint(a, b, tok, errorFormatString);
+        return true;
+      } else {
+        // not enough information to determine
+        return false;
       }
     }
 
@@ -530,85 +567,6 @@ namespace Microsoft.Dafny {
       }
     }
 
-    // ---------------------------------------- Comparable constraints ----------------------------------------
-
-    class ComparableConstraint : PreTypeStateWithErrorMessage {
-      public readonly PreType A;
-      public readonly PreType B;
-
-      public override string ErrorMessage() {
-        return string.Format(ErrorFormatString, A, B);
-      }
-
-      public ComparableConstraint(PreType a, PreType b, IToken tok, string errorFormatString)
-        : base(tok, errorFormatString) {
-        Contract.Requires(a != null);
-        Contract.Requires(b != null);
-        Contract.Requires(tok != null);
-        Contract.Requires(errorFormatString != null);
-        A = a;
-        B = b;
-      }
-    }
-
-    private List<ComparableConstraint> comparableConstraints = new();
-
-    void AddComparableConstraint(PreType a, PreType b, IToken tok, string errorFormatString) {
-      Contract.Requires(a != null);
-      Contract.Requires(b != null);
-      Contract.Requires(tok != null);
-      Contract.Requires(errorFormatString != null);
-      comparableConstraints.Add(new ComparableConstraint(a, b, tok, errorFormatString));
-    }
-
-    bool ApplyComparableConstraints() {
-      // The meaning of a comparable constraint
-      //     A ~~ B
-      // is the disjunction
-      //     A :> B    or    B :> A
-      // To decide between these two possibilities, enough information must be available
-      // about A and/or B.
-      if (comparableConstraints.Count == 0) {
-        // common special case
-        return false;
-      }
-      var constraints = comparableConstraints;
-      comparableConstraints = new();
-      var anythingChanged = false;
-      foreach (var constraint in constraints) {
-        var used = false;
-        var a = constraint.A.Normalize();
-        var b = constraint.B.Normalize();
-        var ptA = a as DPreType;
-        var ptB = b as DPreType;
-        if (ptA != null && ptB != null &&
-            AdaptTypeArgumentsForParent(ptB.Decl, ptA.Decl, ptA.Arguments) == null &&
-            AdaptTypeArgumentsForParent(ptA.Decl, ptB.Decl, ptB.Arguments) == null) {
-          // neither A :> B nor B :> A is possible
-          ReportError(constraint.tok, constraint.ErrorMessage());
-          used = true;
-        } else if ((ptA != null && ptA.IsLeafType()) || (ptB != null && ptB.IsRootType())) {
-          // use B :> A
-          DebugPrint($"    DEBUG: turning ~~ into {b} :> {a}");
-          AddSubtypeConstraint(b, a, constraint.tok, constraint.ErrorFormatString);
-          used = true;
-        } else if ((ptA != null && ptA.IsRootType()) || (ptB != null && ptB.IsLeafType())) {
-          // use A :> B
-          DebugPrint($"    DEBUG: turning ~~ into {a} :> {b}");
-          AddSubtypeConstraint(a, b, constraint.tok, constraint.ErrorFormatString);
-          used = true;
-        } else {
-          // not enough information to determine
-        }
-        if (used) {
-          anythingChanged = true;
-        } else {
-          comparableConstraints.Add(constraint);
-        }
-      }
-      return anythingChanged;
-    }
-
     // ---------------------------------------- Guarded constraints ----------------------------------------
 
     private List<Func<bool>> guardedConstraints = new();
@@ -690,177 +648,138 @@ namespace Microsoft.Dafny {
 
     // ---------------------------------------- Post-inference confirmations ----------------------------------------
 
-    class Confirmation : PreTypeStateWithErrorMessage {
-      public readonly string Check;
-      public readonly PreType PreType;
-
-      public override string ErrorMessage() {
-        return string.Format(ErrorFormatString, PreType);
-      }
-
-      public Confirmation(string check, PreType preType, IToken tok, string errorFormatString)
-        : base(tok, errorFormatString) {
-        Contract.Requires(check != null);
-        Contract.Requires(preType != null);
-        Contract.Requires(tok != null);
-        Contract.Requires(errorFormatString != null);
-        Check = check;
-        PreType = preType;
-      }
-    }
-
-    private List<Confirmation> confirmations = new();
+    private List<System.Action> confirmations = new();
 
     void AddConfirmation(string check, PreType preType, IToken tok, string errorFormatString) {
       Contract.Requires(check != null);
       Contract.Requires(preType != null);
       Contract.Requires(tok != null);
       Contract.Requires(errorFormatString != null);
-      confirmations.Add(new Confirmation(check, preType, tok, errorFormatString));
+      confirmations.Add(() => {
+        if (!ConfirmConstraint(check, preType)) {
+          ReportError(tok, errorFormatString, preType);
+        }
+      });
+    }
+
+    void AddConfirmation(System.Action confirm) {
+      confirmations.Add(confirm);
     }
 
     void ConfirmTypeConstraints() {
       foreach (var c in confirmations) {
-        bool okay;
-        var preType = c.PreType.Normalize();
-        if (preType is PreTypeProxy) {
-          okay = false;
-        } else {
-          var pt = (DPreType)preType;
-          var ancestorPt = NewTypeAncestor(pt);
-          var ancestorDecl = ancestorPt.Decl;
-          var familyDeclName = ancestorDecl.Name;
-          switch (c.Check) {
-            case "InIntFamily":
-              okay = familyDeclName == "int";
-              break;
-            case "InRealFamily":
-              okay = familyDeclName == "real";
-              break;
-            case "InBoolFamily":
-              okay = familyDeclName == "bool";
-              break;
-            case "InCharFamily":
-              okay = familyDeclName == "char";
-              break;
-            case "InSeqFamily":
-              okay = familyDeclName == "seq";
-              break;
-            case "IsNullableRefType":
-              okay = DPreType.IsReferenceTypeDecl(pt.Decl);
-              break;
-            case "IsBitvector":
-              okay = IsBitvectorName(familyDeclName);
-              break;
-            case "IntLikeOrBitvector":
-              okay = familyDeclName == "int" || IsBitvectorName(familyDeclName);
-              break;
-            case "NumericOrBitvector":
-              okay = familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName);
-              break;
-            case "NumericOrBitvectorOrCharOrORDINAL":
-              okay = familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName) || familyDeclName == "char" || familyDeclName == "ORDINAL";
-              break;
-            case "BooleanBits":
-              okay = familyDeclName == "bool" || IsBitvectorName(familyDeclName);
-              break;
-            case "IntOrORDINAL":
-              okay = familyDeclName == "int" || familyDeclName == "ORDINAL";
-              break;
-            case "IntOrBitvectorOrORDINAL":
-              okay = familyDeclName == "int" || IsBitvectorName(familyDeclName) || familyDeclName == "ORDINAL";
-              break;
-            case "Plussable":
-              switch (familyDeclName) {
-                case "int":
-                case "real":
-                case "ORDINAL":
-                case "char":
-                case "seq":
-                case "set":
-                case "iset":
-                case "multiset":
-                case "map":
-                case "imap":
-                  okay = true;
-                  break;
-                default:
-                  okay = IsBitvectorName(familyDeclName);
-                  break;
-              }
-              break;
-            case "Mullable":
-              switch (familyDeclName) {
-                case "int":
-                case "real":
-                case "set":
-                case "iset":
-                case "multiset":
-                  okay = true;
-                  break;
-                default:
-                  okay = IsBitvectorName(familyDeclName);
-                  break;
-              }
-              break;
-            case "Disjointable":
-              okay = familyDeclName == "set" || familyDeclName == "iset" || familyDeclName == "multiset";
-              break;
-            case "Orderable_Lt":
-            case "Orderable_Gt":
-              switch (familyDeclName) {
-                case "int":
-                case "real":
-                case "ORDINAL":
-                case "char":
-                case "set":
-                case "iset":
-                case "multiset":
-                  okay = true;
-                  break;
-                case "seq":
-                  okay = c.Check == "Orderable_Lt";
-                  break;
-                default:
-                  okay = IsBitvectorName(familyDeclName);
-                  break;
-              }
-              break;
-            case "RankOrderable":
-              okay = ancestorDecl is IndDatatypeDecl;
-              break;
-            case "RankOrderableOrTypeParameter":
-              okay = ancestorDecl is IndDatatypeDecl || ancestorDecl is TypeParameter;
-              break;
-            case "Sizeable":
-              switch (familyDeclName) {
-                case "set": // but not "iset"
-                case "multiset":
-                case "seq":
-                case "map": // but not "imap"
-                  okay = true;
-                  break;
-                default:
-                  okay = false;
-                  break;
-              }
-              break;
-            case "Freshable": {
-              var t = familyDeclName == "set" || familyDeclName == "iset" || familyDeclName == "seq"
-                ? ancestorPt.Arguments[0].Normalize() as DPreType
-                : ancestorPt;
-              okay = t != null && DPreType.IsReferenceTypeDecl(t.Decl);
-              break;
-            }
+        c();
+      }
+    }
 
+    private bool ConfirmConstraint(string check, PreType preType) {
+      preType = preType.Normalize();
+      if (preType is PreTypeProxy) {
+        return false;
+      }
+
+      var pt = (DPreType)preType;
+      var ancestorPt = NewTypeAncestor(pt);
+      var ancestorDecl = ancestorPt.Decl;
+      var familyDeclName = ancestorDecl.Name;
+      switch (check) {
+        case "InIntFamily":
+          return familyDeclName == "int";
+        case "InRealFamily":
+          return familyDeclName == "real";
+        case "InBoolFamily":
+          return familyDeclName == "bool";
+        case "InCharFamily":
+          return familyDeclName == "char";
+        case "InSeqFamily":
+          return familyDeclName == "seq";
+        case "IsNullableRefType":
+          return DPreType.IsReferenceTypeDecl(pt.Decl);
+        case "IsBitvector":
+          return IsBitvectorName(familyDeclName);
+        case "IntLikeOrBitvector":
+          return familyDeclName == "int" || IsBitvectorName(familyDeclName);
+        case "NumericOrBitvector":
+          return familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName);
+        case "NumericOrBitvectorOrCharOrORDINAL":
+          return familyDeclName == "int" || familyDeclName == "real" || IsBitvectorName(familyDeclName) || familyDeclName == "char" ||
+                 familyDeclName == "ORDINAL";
+        case "BooleanBits":
+          return familyDeclName == "bool" || IsBitvectorName(familyDeclName);
+        case "IntOrORDINAL":
+          return familyDeclName == "int" || familyDeclName == "ORDINAL";
+        case "IntOrBitvectorOrORDINAL":
+          return familyDeclName == "int" || IsBitvectorName(familyDeclName) || familyDeclName == "ORDINAL";
+        case "Plussable":
+          switch (familyDeclName) {
+            case "int":
+            case "real":
+            case "ORDINAL":
+            case "char":
+            case "seq":
+            case "set":
+            case "iset":
+            case "multiset":
+            case "map":
+            case "imap":
+              return true;
             default:
-              Contract.Assert(false); // unexpected case
-              throw new cce.UnreachableException();
+              return IsBitvectorName(familyDeclName);
           }
+        case "Mullable":
+          switch (familyDeclName) {
+            case "int":
+            case "real":
+            case "set":
+            case "iset":
+            case "multiset":
+              return true;
+            default:
+              return IsBitvectorName(familyDeclName);
+          }
+        case "Disjointable":
+          return familyDeclName == "set" || familyDeclName == "iset" || familyDeclName == "multiset";
+        case "Orderable_Lt":
+        case "Orderable_Gt":
+          switch (familyDeclName) {
+            case "int":
+            case "real":
+            case "ORDINAL":
+            case "char":
+            case "set":
+            case "iset":
+            case "multiset":
+              return true;
+            case "seq":
+              return check == "Orderable_Lt";
+            default:
+              return IsBitvectorName(familyDeclName);
+          }
+        case "RankOrderable":
+          return ancestorDecl is IndDatatypeDecl;
+        case "RankOrderableOrTypeParameter":
+          return ancestorDecl is IndDatatypeDecl || ancestorDecl is TypeParameter;
+        case "Sizeable":
+          switch (familyDeclName) {
+            case "set": // but not "iset"
+            case "multiset":
+            case "seq":
+            case "map": // but not "imap"
+              return true;
+            default:
+              return false;
+          }
+        case "Freshable":
+        {
+          var t = familyDeclName == "set" || familyDeclName == "iset" || familyDeclName == "seq"
+            ? ancestorPt.Arguments[0].Normalize() as DPreType
+            : ancestorPt;
+          return t != null && DPreType.IsReferenceTypeDecl(t.Decl);
         }
-        if (!okay) {
-          ReportError(c.tok, c.ErrorMessage());
-        }
+
+        default:
+          Contract.Assert(false); // unexpected case
+          throw new cce.UnreachableException();
       }
     }
   }
