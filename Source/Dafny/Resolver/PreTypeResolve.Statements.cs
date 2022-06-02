@@ -459,6 +459,9 @@ namespace Microsoft.Dafny {
       } else if (stmt is NestedMatchStmt nestedMatchStmt) {
         var opts = new Resolver.ResolveOpts(codeContext, false);
         ResolveNestedMatchStmt(nestedMatchStmt, opts);
+#if !SOON
+        nestedMatchStmt.ResolvedStatement = new BlockStmt(stmt.Tok, stmt.EndTok, new List<Statement>());
+#endif
 
       } else if (stmt is SkeletonStatement skeletonStatement) {
         ReportError(stmt.Tok, "skeleton statements are allowed only in refining methods");

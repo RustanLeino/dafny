@@ -2661,6 +2661,10 @@ namespace Microsoft.Dafny {
 
 #if PRETYPE
       preTypeResolver.ResolveDeclarations(declarations, moduleName);
+      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+        var u = new CheckUnderspecification(this);
+        u.Check(declarations);
+      }
 #endif
       ResolvePass0(declarations);
 
@@ -3748,12 +3752,12 @@ namespace Microsoft.Dafny {
       return MaxBV(t.AsBitVectorType.Width);
     }
 
-    private BigInteger MaxBV(int bits) {
+    public static BigInteger MaxBV(int bits) {
       Contract.Requires(0 <= bits);
       return BigInteger.Pow(new BigInteger(2), bits) - BigInteger.One;
     }
 
-    private void FigureOutNativeType(NewtypeDecl dd) {
+    public void FigureOutNativeType(NewtypeDecl dd) {
       Contract.Requires(dd != null);
 
       // Look at the :nativeType attribute, if any
@@ -6731,7 +6735,7 @@ namespace Microsoft.Dafny {
             var n = (BigInteger)e.Value;
             var absN = n < 0 ? -n : n;
             // For bitvectors, check that the magnitude fits the width
-            if (e.Type.IsBitVectorType && resolver.MaxBV(e.Type.AsBitVectorType.Width) < absN) {
+            if (e.Type.IsBitVectorType && Resolver.MaxBV(e.Type.AsBitVectorType.Width) < absN) {
               resolver.reporter.Error(MessageSource.Resolver, e.tok, "literal ({0}) is too large for the bitvector type {1}", absN, e.Type);
             }
             // For bitvectors and ORDINALs, check for a unary minus that, earlier, was mistaken for a negative literal
@@ -15073,8 +15077,7 @@ namespace Microsoft.Dafny {
         var e = (TypeTestExpr)expr;
         ResolveExpression(e.E, opts);
         var prevErrorCount = reporter.Count(ErrorLevel.Error);
-        ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies),
-          null);
+        ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
         AddAssignableConstraint(expr.tok, e.ToType, e.E.Type, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
         e.Type = Type.Bool;
 

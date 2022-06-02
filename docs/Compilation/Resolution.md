@@ -229,3 +229,8 @@ Subset-type specialization
 --------------------------
 
 TODO: Abstract interpretation to find most specific subset types.
+
+More to-dos
+-----------
+
+TODO: Describe how/when default parameter values are handled

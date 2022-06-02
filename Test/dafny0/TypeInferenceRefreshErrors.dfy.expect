@@ -7,4 +7,13 @@ TypeInferenceRefreshErrors.dfy(19,10): Error: a reads-clause expression must den
 TypeInferenceRefreshErrors.dfy(20,10): Error: a reads-clause expression must denote an object, a set/iset/multiset/seq of objects, or a function to a set/iset/multiset/seq of objects (instead got set<real>)
 TypeInferenceRefreshErrors.dfy(21,10): Error: a reads-clause expression must denote an object, a set/iset/multiset/seq of objects, or a function to a set/iset/multiset/seq of objects (instead got () -> set<real>)
 TypeInferenceRefreshErrors.dfy(22,10): Error: a reads-clause expression must denote an object, a set/iset/multiset/seq of objects, or a function to a set/iset/multiset/seq of objects (instead got () -> map<object, object>)
-9 resolution/type errors detected in TypeInferenceRefreshErrors.dfy
+TypeInferenceRefreshErrors.dfy(33,12): Error: PRE-TYPE: type cast to reference type 'C' must be from an expression assignable to it (got 'D')
+TypeInferenceRefreshErrors.dfy(34,12): Error: PRE-TYPE: type cast to reference type 'D' must be from an expression assignable to it (got 'C')
+TypeInferenceRefreshErrors.dfy(33,12): Error: type cast to reference type 'C' must be from an expression assignable to it (got 'D')
+TypeInferenceRefreshErrors.dfy(34,12): Error: type cast to reference type 'D' must be from an expression assignable to it (got 'C')
+TypeInferenceRefreshErrors.dfy(41,13): Error: PRE-TYPE: logical/bitwise negation expects a boolean or bitvector argument (instead got ?18)
+TypeInferenceRefreshErrors.dfy(64,8): Error: PRE-TYPE: the type ('map<?34, ?35>') of this local variable is underspecified
+TypeInferenceRefreshErrors.dfy(65,8): Error: PRE-TYPE: the type ('map<?38, ?39>') of this local variable is underspecified
+TypeInferenceRefreshErrors.dfy(66,8): Error: PRE-TYPE: the type ('map<?46, ?47>') of this local variable is underspecified
+TypeInferenceRefreshErrors.dfy(67,11): Error: PRE-TYPE: the type ('map<?44, ?45>') of this expression is underspecified
+18 resolution/type errors detected in TypeInferenceRefreshErrors.dfy

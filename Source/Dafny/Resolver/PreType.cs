@@ -219,19 +219,6 @@ namespace Microsoft.Dafny {
       return s;
     }
 
-    public bool HasTraitSupertypes() {
-      /*
-       * When traits can be used as supertypes for non-reference types (and "object" is an implicit parent trait of every
-       * class), then this method can be implemented by
-       *         return Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0;
-       * For now, every reference type except "object" has trait supertypes.
-       */
-      if (Decl is TraitDecl trait && trait.IsObjectTrait) {
-        return false;
-      }
-      return IsReferenceTypeDecl(Decl);
-    }
-
     public static bool IsReferenceTypeDecl(TopLevelDecl decl) {
       Contract.Requires(decl != null);
       return decl is ClassDecl && !(decl is ArrowTypeDecl);

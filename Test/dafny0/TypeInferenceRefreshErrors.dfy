@@ -21,3 +21,49 @@ module Frames {
     reads ToSetReal // error: not a function to a collection of reference type
     reads ToMap // error: not a function to a collection of reference type
 }
+
+module As {
+  class C { }
+  class D { }
+  method M(c: C, d: D, obj: object) {
+    var cc: C;
+    var dd: D;
+    cc := obj as C;
+    dd := obj as D;
+    cc := d as C; // error: incompatible types
+    dd := c as D; // error: incompatible types
+  }
+}
+
+module Underspecification0 {
+  method P() {
+    var u;
+    var w := !u; // error: type is underspecified
+  }
+}
+
+module Underspecification1 {
+  class E<T> { }
+
+  /* SOON
+  method M(obj: object) {
+    var ee := obj as E; // error: type parameter of E is underspecified
+    assert (obj as E) == (obj as E); // error: type parameter of E is underspecified
+    assert (obj as E) == (obj as E<set>); // error: type parameter of set is underspecified
+    assert (obj as E) == (obj as E<set<int>>);
+  }
+  */
+}
+
+module Underspecification2 {
+  method Q(m: map, n: map) { // fine, because of type-parameter elision rules
+    var o := m + n;
+  }
+
+  method R() {
+    var m: map; // error: type is underspecified
+    var n: map; // error: type is underspecified
+    var o; // error: type is underspecified
+    o := m + n; // error: type of + is underspecified
+  }
+}

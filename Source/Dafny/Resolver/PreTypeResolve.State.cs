@@ -311,10 +311,8 @@ namespace Microsoft.Dafny {
           //     Constrain alpha :> a
           //     Constrain b :> beta
           // else do nothing for now
-          if (ptSub.Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0) {
+          if (HasTraitSupertypes(ptSub)) {
             // there are parent traits
-          } else if (DPreType.IsReferenceTypeDecl(ptSub.Decl) && !((ClassDecl)ptSub.Decl).IsObjectTrait) {
-            // this is a non-object reference type, so it implicitly has "object" as a super-trait
           } else {
             var arguments = CreateProxiesForTypesAccordingToVariance(constraint.tok, ptSub.Decl.TypeArgs, ptSub.Arguments, true);
             var pt = new DPreType(ptSub.Decl, arguments);
@@ -348,18 +346,12 @@ namespace Microsoft.Dafny {
         return subArguments;
       } else if (sub is TopLevelDeclWithMembers md) {
         var subst = PreType.PreTypeSubstMap(md.TypeArgs, subArguments);
-        foreach (var parentType in md.ParentTraits) {
+        foreach (var parentType in AllParentTraits(md)) {
           var parentPreType = (DPreType)Type2PreType(parentType).Substitute(subst);
           var arguments = AdaptTypeArgumentsForParent(super, parentPreType.Decl, parentPreType.Arguments);
           if (arguments != null) {
             return arguments;
           }
-        }
-        // If "md" is a reference type, its parents implicitly contain "object", but "object" might not be explicitly included in .ParentTraits.
-        // We handle it here.
-        if (DPreType.IsReferenceTypeDecl(md) && DPreType.IsReferenceTypeDecl(super)) {
-          // "md" is a reference type, so "object" is a parent, and "object" has no type arguments
-          return new List<PreType>();
         }
       }
       return null;
@@ -498,35 +490,6 @@ namespace Microsoft.Dafny {
       }
       // give up
       return null;
-    }
-
-    void ComputeAncestors(TopLevelDecl d, ISet<TopLevelDecl> ancestors) {
-      if (!ancestors.Contains(d)) {
-        ancestors.Add(d);
-        if (d is TopLevelDeclWithMembers dm) {
-          dm.ParentTraitHeads.Iter(parent => ComputeAncestors(parent, ancestors));
-        }
-        if (d is ClassDecl cl && cl.IsObjectTrait) {
-          // we're done
-        } else if (DPreType.IsReferenceTypeDecl(d)) {
-          // object is also a parent type
-          ComputeAncestors(resolver.builtIns.ObjectDecl, ancestors);
-        }
-      }
-    }
-
-    int Height(TopLevelDecl d) {
-      if (d is TopLevelDeclWithMembers md && md.ParentTraitHeads.Count != 0) {
-        return md.ParentTraitHeads.Max(Height) + 1;
-      } else if (d is ClassDecl cl && cl.IsObjectTrait) {
-        // object is at height 0
-        return 0;
-      } else if (DPreType.IsReferenceTypeDecl(d)) {
-        // any other reference type implicitly has "object" as a parent, so the height is 1
-        return 1;
-      } else {
-        return 0;
-      }
     }
 
     IEnumerable<DPreType> AllSubBounds(PreTypeProxy proxy, ISet<PreTypeProxy> visited) {

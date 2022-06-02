@@ -11000,6 +11000,12 @@ namespace Microsoft.Dafny {
       return _ResolvedOp;
     }
 
+    public void SetResolveOp(ResolvedOpcode resolvedOpcode) {
+      Contract.Assert(resolvedOpcode != ResolvedOpcode.YetUndetermined);
+      Contract.Assert(_ResolvedOp == ResolvedOpcode.YetUndetermined || _ResolvedOp == resolvedOpcode);
+      _ResolvedOp = resolvedOpcode;
+    }
+
     public UnaryOpExpr(IToken tok, Opcode op, Expression e)
       : base(tok, e) {
       Contract.Requires(tok != null);

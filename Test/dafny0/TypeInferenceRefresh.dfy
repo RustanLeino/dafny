@@ -1,4 +1,4 @@
-// RUN: %dafny /compile:0 "%s" > "%t"
+// RUN: %dafny /compile:0 /functionSyntax:4 "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 datatype Color = BlueX | WhiteX | PastelX
@@ -14,7 +14,7 @@ datatype Color = BlueX | WhiteX | PastelX
   }
 }
 
-function method FxF(x: int): bool
+function FxF(x: int): bool
 
 method CallF0() {
   var b0 := FxF(15);

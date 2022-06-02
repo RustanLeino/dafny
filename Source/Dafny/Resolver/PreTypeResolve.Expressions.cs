@@ -270,7 +270,7 @@ namespace Microsoft.Dafny {
         AddGuardedConstraint(() => {
           var sourcePreType = e.Seq.PreType.Normalize() as DPreType;
           var ancestorDecl = AncestorDecl(sourcePreType.Decl);
-          var familyDeclName = sourcePreType == null ? null : ancestorDecl.Name;
+          var familyDeclName = AncestorName(sourcePreType);
           if (familyDeclName == "seq") {
             var elementPreType = sourcePreType.Arguments[0];
             ConstrainToIntFamily(e.Index.PreType, e.Index.tok, "sequence update requires integer- or bitvector-based index (got {0})");
@@ -471,7 +471,7 @@ namespace Microsoft.Dafny {
           } else if (familyDeclName == "ORDINAL") {
             AddConfirmation("NumericOrBitvectorOrCharOrORDINAL", e.E.PreType, expr.tok, "type conversion to an ORDINAL type is allowed only from numeric and bitvector types, char, and ORDINAL (got {0})");
           } else if (DPreType.IsReferenceTypeDecl(ancestorDecl)) {
-            AddSubtypeConstraint(toPreType, e.E.PreType, expr.tok, "type cast to reference type '{0}' must be from an expression assignable to it (got '{1}')");
+            AddComparableConstraint(toPreType, e.E.PreType, expr.tok, "type cast to reference type '{0}' must be from an expression assignable to it (got '{1}')");
           } else {
             ReportError(expr, "type conversions are not supported to this type (got {0})", e.ToType);
           }
@@ -485,7 +485,21 @@ namespace Microsoft.Dafny {
         ResolveExpression(e.E, opts);
         expr.PreType = ConstrainResultToBoolFamilyOperator(expr.tok, "is");
         resolver.ResolveType(e.tok, e.ToType, opts.codeContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null);
-        AddSubtypeConstraint(Type2PreType(e.ToType), e.E.PreType, expr.tok, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
+        var toPreType = Type2PreType(e.ToType);
+        AddComparableConstraint(toPreType, e.E.PreType, expr.tok, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
+        AddConfirmation(() => {
+          // TODO: all of these tests should be revisited (they don't seem right in the presence of newtype's)
+          var fromPT = e.E.PreType.Normalize() as DPreType;
+          var toPT = toPreType.Normalize() as DPreType;
+          if (fromPT != null && toPT != null && IsSuperPreTypeOf(toPT, fromPT)) {
+            // This test is allowed and it always returns true
+          } else if (fromPT == null || toPT == null || !IsSuperPreTypeOf(fromPT, toPT)) {
+            // TODO: I think this line can never be reached, since we get here only if we get past the guarded Comparable constraint
+            ReportError(e.tok, "a type test to '{0}' must be from a compatible type (got '{1}')", toPreType, e.E.PreType);
+          } else if (!DPreType.IsReferenceTypeDecl(toPT.Decl)) {
+            ReportError(e.tok, "a non-trivial type test is allowed only for reference types (tried to test if '{1}' is a '{0}')", toPreType, e.E.PreType);
+          }
+        });
 
       } else if (expr is BinaryExpr) {
         var e = (BinaryExpr)expr;
@@ -833,8 +847,8 @@ namespace Microsoft.Dafny {
             var a1 = e1.PreType;
             var left = a0.Normalize() as DPreType;
             var right = a1.Normalize() as DPreType;
-            var familyDeclNameLeft = left == null ? null : AncestorDecl(left.Decl).Name;
-            var familyDeclNameRight = right == null ? null : AncestorDecl(right.Decl).Name;
+            var familyDeclNameLeft = AncestorName(a0);
+            var familyDeclNameRight = AncestorName(a1);
             if (familyDeclNameLeft == "map" || familyDeclNameLeft == "imap") {
               Contract.Assert(left.Arguments.Count == 2);
               var st = new DPreType(BuiltInTypeDecl("set"), new List<PreType>() { left.Arguments[0] });
@@ -1979,7 +1993,7 @@ namespace Microsoft.Dafny {
       AddGuardedConstraint(() => {
         var sourcePreType = collectionPreType.Normalize() as DPreType;
         if (sourcePreType != null) {
-          var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
+          var familyDeclName = AncestorName(sourcePreType);
           switch (familyDeclName) {
             case "array":
             case "seq":
@@ -2018,7 +2032,7 @@ namespace Microsoft.Dafny {
       AddGuardedConstraint(() => {
         var sourcePreType = collectionPreType.Normalize() as DPreType;
         if (sourcePreType != null) {
-          var familyDeclName = AncestorDecl(sourcePreType.Decl).Name;
+          var familyDeclName = AncestorName(sourcePreType);
           switch (familyDeclName) {
             case "seq":
             case "array":

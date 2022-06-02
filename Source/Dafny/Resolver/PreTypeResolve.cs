@@ -12,60 +12,69 @@ using System.Linq;
 using System.Numerics;
 using System.Diagnostics.Contracts;
 using System.Runtime.Intrinsics.X86;
+using JetBrains.Annotations;
 using Microsoft.Boogie;
 using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
-  public partial class PreTypeResolver {
-    private readonly Resolver resolver;
-    private readonly Scope<IVariable> scope = new();
+  public abstract class ResolverPass {
+    protected readonly Resolver resolver;
 
-    TopLevelDeclWithMembers currentClass;
-    Method currentMethod;
+    protected ResolverPass(Resolver resolver) {
+      Contract.Requires(resolver != null);
+      this.resolver = resolver;
+    }
 
-    private int ErrorCount => resolver.Reporter.Count(ErrorLevel.Error);
+    protected int ErrorCount => resolver.Reporter.Count(ErrorLevel.Error);
 
-    private void ReportError(Declaration d, string msg, params object[] args) {
+    protected void ReportError(Declaration d, string msg, params object[] args) {
       Contract.Requires(d != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       ReportError(d.tok, msg, args);
     }
 
-    private void ReportError(Statement stmt, string msg, params object[] args) {
+    protected void ReportError(Statement stmt, string msg, params object[] args) {
       Contract.Requires(stmt != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       ReportError(stmt.Tok, msg, args);
     }
 
-    private void ReportError(Expression expr, string msg, params object[] args) {
+    protected void ReportError(Expression expr, string msg, params object[] args) {
       Contract.Requires(expr != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       ReportError(expr.tok, msg, args);
     }
-    
-    private void ReportError(Bpl.IToken tok, string msg, params object[] args) {
+
+    public void ReportError(Bpl.IToken tok, string msg, params object[] args) {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       resolver.Reporter.Error(MessageSource.Resolver, tok, "PRE-TYPE: " + msg, args);
     }
-    
-    private void ReportWarning(Bpl.IToken tok, string msg, params object[] args) {
+
+    public void ReportWarning(Bpl.IToken tok, string msg, params object[] args) {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       resolver.Reporter.Warning(MessageSource.Resolver, tok, msg, args);
     }
 
-    private void ReportInfo(Bpl.IToken tok, string msg, params object[] args) {
+    protected void ReportInfo(Bpl.IToken tok, string msg, params object[] args) {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       resolver.Reporter.Info(MessageSource.Resolver, tok, msg, args);
     }
+  }
+
+  public partial class PreTypeResolver : ResolverPass {
+    private readonly Scope<IVariable> scope = new();
+
+    TopLevelDeclWithMembers currentClass;
+    Method currentMethod;
 
     private readonly Dictionary<string, TopLevelDecl> preTypeBuiltins = new();
 
@@ -208,12 +217,18 @@ namespace Microsoft.Dafny {
     /// <summary>
     /// Returns the non-newtype ancestor of "cecl".
     /// </summary>
-    public TopLevelDecl AncestorDecl(TopLevelDecl decl) {
+    public static TopLevelDecl AncestorDecl(TopLevelDecl decl) {
       while (decl is NewtypeDecl newtypeDecl) {
         var parent = newtypeDecl.BasePreType.Normalize();
         decl = ((DPreType)parent).Decl;
       }
       return decl;
+    }
+
+    [CanBeNull]
+    public static string/*?*/ AncestorName(PreType preType) {
+      var dp = preType.Normalize() as DPreType;
+      return dp == null ? null : AncestorDecl(dp.Decl).Name;
     }
 
     /// <summary>
@@ -231,6 +246,105 @@ namespace Microsoft.Dafny {
         preType = (DPreType)parent.Substitute(subst);
       }
       return preType;
+    }
+
+    /// <summary>
+    /// AllParentTraits(decl) is like decl.ParentTraits, but also returns "object" is "decl" is a reference type.
+    /// </summary>
+    public IEnumerable<Type> AllParentTraits(TopLevelDeclWithMembers decl) {
+      foreach (var parentType in decl.ParentTraits) {
+        yield return parentType;
+      }
+      if (DPreType.IsReferenceTypeDecl(decl)) {
+        if (decl is TraitDecl trait && trait.IsObjectTrait) {
+          // don't return object itself
+        } else {
+          yield return resolver.builtIns.ObjectQ();
+        }
+      }
+    }
+
+    public static bool HasTraitSupertypes(DPreType dp) {
+      /*
+       * When traits can be used as supertypes for non-reference types (and "object" is an implicit parent trait of every
+       * class), then this method can be implemented by
+       *         return dp.Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0;
+       * For now, every reference type except "object" has trait supertypes.
+       */
+      if (dp.Decl is TopLevelDeclWithMembers md && md.ParentTraits.Count != 0) {
+        // this type has explicitly declared parent traits
+        return true;
+      }
+      if (dp.Decl is TraitDecl trait && trait.IsObjectTrait) {
+        // the built-in type "object" has no parent traits
+        return false;
+      }
+      // any non-object reference type has "object" as an implicit parent trait
+      return DPreType.IsReferenceTypeDecl(dp.Decl);
+    }
+
+    /// <summary>
+    /// Add to "ancestors" every TopLevelDecl that is a reflexive, transitive parent of "d",
+    /// but not exploring past any TopLevelDecl that is already in "ancestors".
+    /// An ancestor
+    void ComputeAncestors(TopLevelDecl d, ISet<TopLevelDecl> ancestors) {
+      if (!ancestors.Contains(d)) {
+        ancestors.Add(d);
+        if (d is TopLevelDeclWithMembers dm) {
+          dm.ParentTraitHeads.Iter(parent => ComputeAncestors(parent, ancestors));
+        }
+        if (d is ClassDecl cl && cl.IsObjectTrait) {
+          // we're done
+        } else if (DPreType.IsReferenceTypeDecl(d)) {
+          // object is also a parent type
+          ComputeAncestors(resolver.builtIns.ObjectDecl, ancestors);
+        }
+      }
+    }
+
+    int Height(TopLevelDecl d) {
+      if (d is TopLevelDeclWithMembers md && md.ParentTraitHeads.Count != 0) {
+        return md.ParentTraitHeads.Max(Height) + 1;
+      } else if (d is ClassDecl cl && cl.IsObjectTrait) {
+        // object is at height 0
+        return 0;
+      } else if (DPreType.IsReferenceTypeDecl(d)) {
+        // any other reference type implicitly has "object" as a parent, so the height is 1
+        return 1;
+      } else {
+        return 0;
+      }
+    }
+
+    /// <summary>
+    /// Return "true" if "super" is a super-(pre)type of "sub".
+    /// Otherwise, return "false".
+    /// Note, if either "super" or "sub" contains a type proxy, then "false" is returned.
+    /// </summary>
+    public bool IsSuperPreTypeOf(DPreType super, DPreType sub) {
+      var subAncestors = new HashSet<TopLevelDecl>();
+      ComputeAncestors(sub.Decl, subAncestors);
+      if (!subAncestors.Contains(super.Decl)) {
+        return false;
+      }
+      var s = sub.AsParentType(super.Decl, this);
+      var n = super.Decl.TypeArgs.Count;
+      Contract.Assert(super.Arguments.Count == n);
+      Contract.Assert(s.Arguments.Count == n);
+      for (var i = 0; i < n; i++) {
+        var superI = super.Arguments[i].Normalize() as DPreType;
+        var subI = s.Arguments[i].Normalize() as DPreType;
+        if (superI == null || subI == null) {
+          return false;
+        }
+        if (super.Decl.TypeArgs[i].Variance != TypeParameter.TPVariance.Contra && !IsSuperPreTypeOf(superI, subI)) {
+          return false;
+        }
+        if (super.Decl.TypeArgs[i].Variance != TypeParameter.TPVariance.Co && !IsSuperPreTypeOf(subI, superI)) {
+          return false;
+        }
+      }
+      return true;
     }
 
     public static bool IsBitvectorName(string name, out int width) {
@@ -263,9 +377,10 @@ namespace Microsoft.Dafny {
       return false;
     }
 
-    public PreTypeResolver(Resolver resolver) {
+    public PreTypeResolver(Resolver resolver)
+    : base(resolver)
+    {
       Contract.Requires(resolver != null);
-      this.resolver = resolver;
     }
 
     void ScopePushAndReport(IVariable v, string kind, bool assignPreType = true) {
@@ -321,40 +436,11 @@ namespace Microsoft.Dafny {
       Contract.Requires(declarations != null);
       foreach (TopLevelDecl topd in declarations) {
         TopLevelDecl d = topd is ClassDecl ? ((ClassDecl)topd).NonNullTypeDecl : topd;
-        if (d is NewtypeDecl) {
-          var dd = (NewtypeDecl)d;
-          // this check can be done only after it has been determined that the redirected types do not involve cycles
-          AddXConstraint(d.tok, "NumericType", dd.BaseType, "newtypes must be based on some numeric type (got {0})");
-          if (dd.Var != null) {
-            if (!CheckTypeInference_Visitor.IsDetermined(dd.BaseType.NormalizeExpand())) {
-              ReportError(dd, "newtype's base type is not fully determined; add an explicit type for '{0}'", dd.Var.Name);
-            }
-          }
-        } else if (d is SubsetTypeDecl) {
-          var dd = (SubsetTypeDecl)d;
-          if (!CheckTypeInference_Visitor.IsDetermined(dd.Rhs.NormalizeExpand())) {
-            ReportError(dd, "subset type's base type is not fully determined; add an explicit type for '{0}'", dd.Var.Name);
-          }
-          dd.ConstraintIsCompilable = ExpressionTester.CheckIsCompilable(null, dd.Constraint, new CodeContextWrapper(dd, true));
-          dd.CheckedIfConstraintIsCompilable = true;
-          
-          if (ErrorCount == prevErrCnt) {
-            CheckTypeInference(dd.Witness, dd);
-          }
-          if (ErrorCount == prevErrCnt && dd.WitnessKind == SubsetTypeDecl.WKind.Compiled) {
-            ExpressionTester.CheckIsCompilable(this, dd.Witness, codeContext);
-          }
 
-        }
-        
-        Contract.Assert(AllTypeConstraints.Count == 0);
         if (ErrorCount == prevErrorCount) {
           // Check type inference, which also discovers bounds, in newtype/subset-type constraints and const declarations
           foreach (TopLevelDecl topd in declarations) {
             TopLevelDecl d = topd is ClassDecl ? ((ClassDecl)topd).NonNullTypeDecl : topd;
-            if (d is RedirectingTypeDecl dd && dd.Constraint != null) {
-              CheckTypeInference(dd.Constraint, dd);
-            }
             if (topd is TopLevelDeclWithMembers cl) {
               foreach (var member in cl.Members) {
                 if (member is ConstantField field && field.Rhs != null) {
@@ -364,10 +450,6 @@ namespace Microsoft.Dafny {
                       "type for constant '" + field.Name + "' is '{0}', but its initialization value type is '{1}'");
                   }
                   
-                  CheckTypeInference(field.Rhs, field);
-                  if (!field.IsGhost) {
-                    ExpressionTester.CheckIsCompilable(this, field.Rhs, field);
-                  }
                 }
               }
             }
@@ -1096,14 +1178,6 @@ namespace Microsoft.Dafny {
       });
     }
 
-    void CheckTypeInference(Expression expr, ICodeContext codeContext) {
-      Contract.Requires(expr != null);
-      Contract.Requires(codeContext != null);
-      PartiallySolveTypeConstraints();
-      var c = new Resolver.CheckTypeInference_Visitor(resolver, codeContext);
-      c.Visit(expr);
-    }
-    
     // ---------------------------------------- Utilities ----------------------------------------
 
     public Dictionary<TypeParameter, PreType> BuildPreTypeArgumentSubstitute(Dictionary<TypeParameter, PreType> typeArgumentSubstitutions, DPreType/*?*/ receiverTypeBound = null) {
