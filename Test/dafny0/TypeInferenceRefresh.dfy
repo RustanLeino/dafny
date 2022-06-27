@@ -918,4 +918,26 @@ module OrderingIssue_Fine {
   newtype N = x: MM | 0 <= x < 100
 }
 
+// ------------------------
+// From Marianna:
+
+const int32_MIN: int := -0x8000_0000
+const int32_MAX: int := 0x7fff_ffff
+newtype int32 = x | int32_MIN <= x <= int32_MAX
+
+const nat31_MIN: int32 := 0
+const nat31_MAX: int32 := int32_MAX as int32
+type nat31 = x: int32 | nat31_MIN <= x <= nat31_MAX
+
+method Works() {
+  var x: int32 := 0;
+}
+
+method DoesNotWork() {
+  var x: nat31 := 0; // gives error: int not assignable to nat31
+}
+
+method Workaround() {
+  var x: nat31 := 0 as int32;
+}
 ****************************************************************************************/
