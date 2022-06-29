@@ -27,27 +27,27 @@ public class VerificationProgressReporter : IVerificationProgressReporter {
   private const int MaxLastTouchedMethodPriority = 10;
   private const int MaxLastTouchedMethods = 5;
 
-  private readonly ICompilationStatusNotificationPublisher publisher;
+  private readonly ICompilationStatusNotificationPublisher statusPublisher;
   private readonly DafnyDocument document;
   private readonly ILogger<VerificationProgressReporter> logger;
-  private readonly IDiagnosticPublisher diagnosticPublisher;
+  private readonly INotificationPublisher notificationPublisher;
 
   public VerificationProgressReporter(ILogger<VerificationProgressReporter> logger,
     DafnyDocument document,
-    ICompilationStatusNotificationPublisher publisher,
-    IDiagnosticPublisher diagnosticPublisher
+    ICompilationStatusNotificationPublisher statusPublisher,
+    INotificationPublisher notificationPublisher
   ) {
     this.document = document;
-    this.publisher = publisher;
+    this.statusPublisher = statusPublisher;
     this.logger = logger;
-    this.diagnosticPublisher = diagnosticPublisher;
+    this.notificationPublisher = notificationPublisher;
   }
 
   /// <summary>
   /// Sends a more precise verification status message to the client's status bar
   /// </summary>
   public void ReportProgress(string message) {
-    publisher.SendStatusNotification(document.TextDocumentItem, CompilationStatus.VerificationStarted, message);
+    statusPublisher.SendStatusNotification(document.TextDocumentItem, CompilationStatus.VerificationStarted, message);
   }
 
   /// <summary>
@@ -58,6 +58,8 @@ public class VerificationProgressReporter : IVerificationProgressReporter {
     var previousTrees = document.VerificationTree.Children;
 
     List<VerificationTree> result = new List<VerificationTree>();
+
+    HashSet<Position> recordedPositions = new HashSet<Position>();
 
     void AddAndPossiblyMigrateVerificationTree(VerificationTree verificationTree) {
       var position = verificationTree.Position;
@@ -70,7 +72,11 @@ public class VerificationProgressReporter : IVerificationProgressReporter {
         verificationTree.StatusCurrent = CurrentStatus.Obsolete;
         verificationTree.Children = previousTree.Children;
       }
-      result.Add(verificationTree);
+      // Prevent duplicating trees, e.g. reveal lemmas that have the same position as the function. 
+      if (!recordedPositions.Contains(verificationTree.Position)) {
+        result.Add(verificationTree);
+        recordedPositions.Add(verificationTree.Position);
+      }
     }
 
     var documentFilePath = document.GetFilePath();
@@ -240,7 +246,7 @@ public class VerificationProgressReporter : IVerificationProgressReporter {
       if (dafnyDocument.LoadCanceled) {
         return;
       }
-      diagnosticPublisher.PublishGutterIcons(document, verificationStarted);
+      notificationPublisher.PublishGutterIcons(document, verificationStarted);
     }
   }
 
