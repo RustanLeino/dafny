@@ -1,4 +1,4 @@
-// RUN: %dafny /compile:0 /functionSyntax:4 "%s" > "%t"
+// RUN: %dafny_0 /compile:0 /functionSyntax:4 "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 datatype Color = BlueX | WhiteX | PastelX

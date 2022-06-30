@@ -165,7 +165,7 @@ namespace Microsoft.Dafny {
         return CreatePreTypeProxy("self type"); // TODO: handle this differently
       }
 
-      PreType printablePreType = null;
+      DPreType printablePreType = null;
       if (option != Type2PreTypeOption.GoodForInference) {
         var printableDecl = Type2PreTypeDecl(type);
         var printableArguments = type.TypeArgs.ConvertAll(ty => Type2PreType(ty, null, Type2PreTypeOption.GoodForPrinting));

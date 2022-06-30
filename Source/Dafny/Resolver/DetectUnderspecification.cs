@@ -700,7 +700,8 @@ namespace Microsoft.Dafny {
       Contract.Requires(pt != null);
       if (pt.Normalize() is DPreType dp) {
         if (dp.PrintablePreType != null) {
-          return IsDetermined(dp.PrintablePreType);
+          // If the type is a synonym, focus on it, which will check that all its type arguments have been filled in
+          dp = dp.PrintablePreType;
         }
         Contract.Assert(dp.Decl != null); // every DPreType has a non-null .Decl
         return dp.Arguments.TrueForAll(IsDetermined);
@@ -729,8 +730,13 @@ namespace Microsoft.Dafny {
         }
         return false;
       }
+      var dp = (DPreType)pt;
+      if (dp.PrintablePreType != null) {
+        // If the type is a synonym, focus on it, which will check that all its type arguments have been filled in
+        dp = dp.PrintablePreType;
+      }
       // Recurse on type arguments:
-      return ((DPreType)pt).Arguments.TrueForAll(tt => CheckPreTypeIsDetermined(tok, tt, what, origPreType));
+      return dp.Arguments.TrueForAll(tt => CheckPreTypeIsDetermined(tok, tt, what, origPreType));
     }
 
     public void CheckTypeArgsContainNoOrdinal(IToken tok, PreType preType) {

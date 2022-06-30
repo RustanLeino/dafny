@@ -178,9 +178,9 @@ namespace Microsoft.Dafny {
   public class DPreType : PreType {
     public readonly TopLevelDecl Decl;
     public readonly List<PreType> Arguments;
-    public readonly PreType PrintablePreType;
+    public readonly DPreType PrintablePreType;
 
-    public DPreType(TopLevelDecl decl, List<PreType> arguments, PreType printablePreType = null) {
+    public DPreType(TopLevelDecl decl, List<PreType> arguments, DPreType printablePreType = null) {
       Contract.Assume(decl != null);
       Decl = decl;
       Arguments = arguments;
