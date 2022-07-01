@@ -5209,6 +5209,8 @@ namespace Microsoft.Dafny {
     public readonly bool IsUserMutable;  // says whether or not code is allowed to assign to the field (IsUserMutable implies IsMutable)
     public readonly Type Type;
     public PreType PreType;
+    public TypeImprovement TypeImprovement;
+
     [ContractInvariantMethod]
     void ObjectInvariant() {
       Contract.Invariant(Type != null);
@@ -9152,6 +9154,8 @@ namespace Microsoft.Dafny {
     }
 
     [FilledInDuringResolution] public PreType PreType; // filled in during resolution
+
+    [FilledInDuringResolution] public TypeImprovement TypeImprovement;
     
     [FilledInDuringResolution] protected Type type;
     public Type Type {

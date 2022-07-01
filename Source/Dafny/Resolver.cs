@@ -2665,6 +2665,10 @@ namespace Microsoft.Dafny {
         var u = new CheckUnderspecification(this);
         u.Check(declarations);
       }
+      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+        var u = new TypeImprover(this);
+        u.Improve(declarations);
+      }
 #endif
       ResolvePass0(declarations);
 
