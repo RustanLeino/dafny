@@ -8,6 +8,7 @@
 using System;
 using System.Diagnostics.Contracts;
 using Microsoft.Boogie;
+using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
@@ -18,57 +19,57 @@ namespace Microsoft.Dafny {
     /// 1 - desugaring it into a decision tree of MatchExpr and ITEEXpr (for constant matching)
     /// 2 - resolving the generated (sub)expression
     /// </summary>
-    void ResolveNestedMatchExpr(NestedMatchExpr me, Resolver.ResolveOpts opts) {
+    void ResolveNestedMatchExpr(NestedMatchExpr me, ResolutionContext resolutionContext) {
       Contract.Requires(me != null);
-      Contract.Requires(opts != null);
+      Contract.Requires(resolutionContext != null);
       Contract.Requires(me.ResolvedExpression == null);
 
       var errorCount = ErrorCount;
-      ResolveExpression(me.Source, opts);
+      ResolveExpression(me.Source, resolutionContext);
       me.PreType = CreatePreTypeProxy("match result");
 
       // Ensure that all ExtendedPattern held in NestedMatchCase are linear.
       // Use sourcePreType to determine if IdPatterns are datatypes (of the provided type) or variables.
       foreach (var mc in me.Cases) {
         scope.PushMarker();
-        ResolveAttributes(mc, opts, false);
-        ResolveExtendedPattern(mc.Pat, me.Source.PreType, me.Source.tok, opts,
+        ResolveAttributes(mc, resolutionContext, false);
+        ResolveExtendedPattern(mc.Pat, me.Source.PreType, me.Source.tok, resolutionContext,
           (tok, name, ty, pt) => new BoundVar(tok, name, ty) { PreType = pt });
         foreach (var v in mc.Pat.Vars) {
           ScopePushExpectSuccess(v, "bound pattern variable", false);
         }
-        ResolveExpression(mc.Body, opts);
+        ResolveExpression(mc.Body, resolutionContext);
         AddSubtypeConstraint(me.PreType, mc.Body.PreType, mc.Body.tok, "type of case body ({1}) not assignable to type of 'match' ({0})");
         scope.PopMarker();
       }
 
       if (ErrorCount == errorCount) {
 #if SOON
-        CompileNestedMatchExpr(me, opts);
-        ResolveExpression(me.ResolvedExpression, opts);
+        CompileNestedMatchExpr(me, resolutionContext);
+        ResolveExpression(me.ResolvedExpression, resolutionContext);
 #endif
       }
     }
 
-    void ResolveNestedMatchStmt(NestedMatchStmt stmt, Resolver.ResolveOpts opts) {
+    void ResolveNestedMatchStmt(NestedMatchStmt stmt, ResolutionContext resolutionContext) {
       Contract.Requires(stmt != null);
-      Contract.Requires(opts != null);
+      Contract.Requires(resolutionContext != null);
 
       var errorCount = ErrorCount;
-      ResolveExpression(stmt.Source, opts);
+      ResolveExpression(stmt.Source, resolutionContext);
 
       // Ensure that all ExtendedPattern held in NestedMatchCase are linear.
       // Use sourcePreType to determine if IdPatterns are datatypes (of the provided type) or variables.
       foreach (var mc in stmt.Cases) {
         scope.PushMarker();
-        ResolveAttributes(mc, opts, false);
-        ResolveExtendedPattern(mc.Pat, stmt.Source.PreType, stmt.Source.tok, opts,
+        ResolveAttributes(mc, resolutionContext, false);
+        ResolveExtendedPattern(mc.Pat, stmt.Source.PreType, stmt.Source.tok, resolutionContext,
           (tok, name, ty, pt) => new BoundVar(tok, name, ty) { PreType = pt });
         foreach (var v in mc.Pat.Vars) {
           ScopePushExpectSuccess(v, "bound pattern variable", false);
         }
         foreach (var ss in mc.Body) {
-          ResolveStatementWithLabels(ss, opts.codeContext);
+          ResolveStatementWithLabels(ss, resolutionContext);
         }
         scope.PopMarker();
       }
@@ -80,7 +81,7 @@ namespace Microsoft.Dafny {
     // 3* - An IdPattern at tuple type representing a tuple
     // 3 - An IdPattern at datatype type representing a constructor of type
     // 4 - An IdPattern at datatype type with no arguments representing a bound variable
-    private void ResolveExtendedPattern(ExtendedPattern pat, PreType preType, IToken sourceTok, Resolver.ResolveOpts opts,
+    private void ResolveExtendedPattern(ExtendedPattern pat, PreType preType, IToken sourceTok, ResolutionContext opts,
       Func<IToken, string, Type, PreType, IVariable> createVariable) {
       Contract.Requires(preType != null);
 

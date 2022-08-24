@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics.Contracts;
 using Microsoft.Boogie;
+using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
@@ -18,7 +19,7 @@ namespace Microsoft.Dafny {
     /// "typeMap" is applied to the type of each formal.
     /// This method should be called only once. That is, bindings.arguments is required to be null on entry to this method.
     /// </summary>
-    void ResolveActualParameters(ActualBindings bindings, List<Formal> formals, IToken callTok, object context, Resolver.ResolveOpts opts,
+    void ResolveActualParameters(ActualBindings bindings, List<Formal> formals, IToken callTok, object context, ResolutionContext opts,
       Dictionary<TypeParameter, PreType> typeMap, Expression/*?*/ receiver) {
       Contract.Requires(bindings != null);
       Contract.Requires(formals != null);

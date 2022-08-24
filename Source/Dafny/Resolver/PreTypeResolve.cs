@@ -15,6 +15,7 @@ using System.Runtime.Intrinsics.X86;
 using JetBrains.Annotations;
 using Microsoft.Boogie;
 using Bpl = Microsoft.Boogie;
+using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public abstract class ResolverPass {
@@ -48,21 +49,21 @@ namespace Microsoft.Dafny {
       ReportError(expr.tok, msg, args);
     }
 
-    public void ReportError(Bpl.IToken tok, string msg, params object[] args) {
+    public void ReportError(IToken tok, string msg, params object[] args) {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       resolver.Reporter.Error(MessageSource.Resolver, tok, "PRE-TYPE: " + msg, args);
     }
 
-    public void ReportWarning(Bpl.IToken tok, string msg, params object[] args) {
+    public void ReportWarning(IToken tok, string msg, params object[] args) {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
       resolver.Reporter.Warning(MessageSource.Resolver, tok, msg, args);
     }
 
-    protected void ReportInfo(Bpl.IToken tok, string msg, params object[] args) {
+    protected void ReportInfo(IToken tok, string msg, params object[] args) {
       Contract.Requires(tok != null);
       Contract.Requires(msg != null);
       Contract.Requires(args != null);
@@ -612,7 +613,7 @@ namespace Microsoft.Dafny {
     private void ResolveTopLevelDeclaration(TopLevelDecl d, bool initialResolutionPass) {
       if (!initialResolutionPass && !(d is IteratorDecl)) {
         // Note, attributes of iterators are resolved by ResolveIterator, after registering any names in the iterator signature
-        ResolveAttributes(d, new Resolver.ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false), true);
+        ResolveAttributes(d, new ResolutionContext(new NoContext(d.EnclosingModuleDefinition), false), true);
       }
 
       if (d is NewtypeDecl newtypeDecl) {
@@ -627,7 +628,7 @@ namespace Microsoft.Dafny {
         ResolveIterator(iter);
       } else if (d is DatatypeDecl dt) {
         foreach (var ctor in dt.Ctors) {
-          ResolveAttributes(ctor, new Resolver.ResolveOpts(new NoContext(d.EnclosingModuleDefinition), false), true);
+          ResolveAttributes(ctor, new ResolutionContext(new NoContext(d.EnclosingModuleDefinition), false), true);
         }
         // resolve any default parameters
         foreach (var ctor in dt.Ctors) {
@@ -662,7 +663,7 @@ namespace Microsoft.Dafny {
       }
     }
     
-    void ResolveAttributes(IAttributeBearingDeclaration attributeHost, Resolver.ResolveOpts opts, bool solveConstraints) {
+    void ResolveAttributes(IAttributeBearingDeclaration attributeHost, ResolutionContext opts, bool solveConstraints) {
       Contract.Requires(attributeHost != null);
       Contract.Requires(opts != null);
 
@@ -690,14 +691,14 @@ namespace Microsoft.Dafny {
         if (dd.Var != null) {
           scope.PushMarker();
           ScopePushExpectSuccess(dd.Var, dd.WhatKind + " variable", false);
-          ResolveExpression(dd.Constraint, new Resolver.ResolveOpts(new CodeContextWrapper(dd, true), false));
+          ResolveExpression(dd.Constraint, new ResolutionContext(new CodeContextWrapper(dd, true), false));
           ConstrainTypeExprBool(dd.Constraint, dd.WhatKind + " constraint must be of type bool (instead got {0})");
           scope.PopMarker();
           // don't solve the type constraints here
         }
       } else if (dd.Witness != null) {
         var codeContext = new CodeContextWrapper(dd, dd.WitnessKind == SubsetTypeDecl.WKind.Ghost);
-        ResolveExpression(dd.Witness, new Resolver.ResolveOpts(codeContext, false));
+        ResolveExpression(dd.Witness, new ResolutionContext(codeContext, false));
         AddSubtypeConstraint(dd.Var.PreType, dd.Witness.PreType, dd.Witness.tok, "witness expression must have type '{0}' (got '{1}')");
         SolveAllTypeConstraints($"{dd.WhatKind} '{dd.Name}' witness");
       }
@@ -714,7 +715,7 @@ namespace Microsoft.Dafny {
         var d = formal.DefaultValue;
         if (d != null) {
           allowMoreRequiredParameters = false;
-          ResolveExpression(d, new Resolver.ResolveOpts(codeContext, codeContext is TwoStateFunction || codeContext is TwoStateLemma));
+          ResolveExpression(d, new ResolutionContext(codeContext, codeContext is TwoStateFunction || codeContext is TwoStateLemma));
           AddSubtypeConstraint(Type2PreType(formal.Type), Type2PreType(d.Type), d.tok, "default-value expression (of type '{1}') is not assignable to formal (of type '{0}')");
           foreach (var v in Resolver.FreeVariables(d)) {
             dependencies.AddEdge(formal, v);
@@ -761,13 +762,13 @@ namespace Microsoft.Dafny {
 
       if (initialResolutionPass) {
         if (member is ConstantField constantField && constantField.Rhs != null) {
-          var opts = new Resolver.ResolveOpts(constantField, false);
+          var opts = new ResolutionContext(constantField, false);
           ResolveExpression(constantField.Rhs, opts);
         }
         return;
       }
       
-      ResolveAttributes(member, new Resolver.ResolveOpts(new NoContext(currentClass.EnclosingModuleDefinition), false), true);
+      ResolveAttributes(member, new ResolutionContext(new NoContext(currentClass.EnclosingModuleDefinition), false), true);
 
       if (member is Field) {
         // nothing else to do
@@ -830,7 +831,7 @@ namespace Microsoft.Dafny {
       Contract.Assert(iter.Decreases.Expressions.Count == iter.DecreasesFields.Count);
       for (int i = 0; i < iter.Decreases.Expressions.Count; i++) {
         var e = iter.Decreases.Expressions[i];
-        ResolveExpression(e, new Resolver.ResolveOpts(iter, false));
+        ResolveExpression(e, new ResolutionContext(iter, false));
         // any type is fine, but associate this type with the corresponding _decreases<n> field
         var d = iter.DecreasesFields[i];
         // If the following type constraint does not hold, then: Bummer, there was a use--and a bad use--of the field before, so this won't be the best of error messages
@@ -843,7 +844,7 @@ namespace Microsoft.Dafny {
         ResolveFrameExpression(fe, Resolver.FrameExpressionUse.Modifies, iter);
       }
       foreach (AttributedExpression e in iter.Requires) {
-        ResolveExpression(e.E, new Resolver.ResolveOpts(iter, false));
+        ResolveExpression(e.E, new ResolutionContext(iter, false));
         ConstrainTypeExprBool(e.E, "Precondition must be a boolean (got {0})");
       }
 
@@ -856,20 +857,20 @@ namespace Microsoft.Dafny {
       Contract.Assert(scope.AllowInstance);
 
       foreach (AttributedExpression e in iter.YieldRequires) {
-        ResolveExpression(e.E, new Resolver.ResolveOpts(iter, false));
+        ResolveExpression(e.E, new ResolutionContext(iter, false));
         ConstrainTypeExprBool(e.E, "Yield precondition must be a boolean (got {0})");
       }
       foreach (AttributedExpression e in iter.YieldEnsures) {
-        ResolveExpression(e.E, new Resolver.ResolveOpts(iter, true));
+        ResolveExpression(e.E, new ResolutionContext(iter, true));
         ConstrainTypeExprBool(e.E, "Yield postcondition must be a boolean (got {0})");
       }
       foreach (AttributedExpression e in iter.Ensures) {
-        ResolveExpression(e.E, new Resolver.ResolveOpts(iter, true));
+        ResolveExpression(e.E, new ResolutionContext(iter, true));
         ConstrainTypeExprBool(e.E, "Postcondition must be a boolean (got {0})");
       }
       SolveAllTypeConstraints($"specification of iterator '{iter.Name}'");
 
-      ResolveAttributes(iter, new Resolver.ResolveOpts(iter, false), true);
+      ResolveAttributes(iter, new ResolutionContext(iter, false), true);
 
       var postSpecErrorCount = ErrorCount;
 
@@ -886,7 +887,7 @@ namespace Microsoft.Dafny {
             }
           }
         }
-        ResolveBlockStatement(iter.Body, iter);
+        ResolveBlockStatement(iter.Body, ResolutionContext.FromCodeContext(iter));
         dominatingStatementLabels.PopMarker();
         SolveAllTypeConstraints($"body of iterator '{iter.Name}'");
       }
@@ -926,16 +927,16 @@ namespace Microsoft.Dafny {
       foreach (Formal p in f.Formals) {
         ScopePushAndReport(p, "parameter", false);
       }
-      ResolveAttributes(f, new Resolver.ResolveOpts(f, false), true);
+      ResolveAttributes(f, new ResolutionContext(f, false), true);
       // take care of the warnShadowing attribute
       if (Attributes.ContainsBool(f.Attributes, "warnShadowing", ref warnShadowing)) {
         DafnyOptions.O.WarnShadowing = warnShadowing;  // set the value according to the attribute
       }
       ResolveParameterDefaultValues(f.Formals, f);
       foreach (AttributedExpression e in f.Req) {
-        ResolveAttributes(e, new Resolver.ResolveOpts(f, f is TwoStateFunction), false);
+        ResolveAttributes(e, new ResolutionContext(f, f is TwoStateFunction), false);
         Expression r = e.E;
-        ResolveExpression(r, new Resolver.ResolveOpts(f, f is TwoStateFunction));
+        ResolveExpression(r, new ResolutionContext(f, f is TwoStateFunction));
         ConstrainTypeExprBool(r, "Precondition must be a boolean (got {0})");
       }
       foreach (FrameExpression fr in f.Reads) {
@@ -947,15 +948,15 @@ namespace Microsoft.Dafny {
           scope.PushMarker();
           ScopePushAndReport(f.Result, "function result", false); // function return only visible in post-conditions
         }
-        ResolveExpression(r, new Resolver.ResolveOpts(f, f is TwoStateFunction, false, true, false));  // since this is a function, the postcondition is still a one-state predicate, unless it's a two-state function
+        ResolveExpression(r, new ResolutionContext(f, f is TwoStateFunction) with { InFunctionPostcondition = true });
         ConstrainTypeExprBool(r, "Postcondition must be a boolean (got {0})");
         if (f.Result != null) {
           scope.PopMarker();
         }
       }
-      ResolveAttributes(f.Decreases, new Resolver.ResolveOpts(f, f is TwoStateFunction), false);
+      ResolveAttributes(f.Decreases, new ResolutionContext(f, f is TwoStateFunction), false);
       foreach (Expression r in f.Decreases.Expressions) {
-        ResolveExpression(r, new Resolver.ResolveOpts(f, f is TwoStateFunction));
+        ResolveExpression(r, new ResolutionContext(f, f is TwoStateFunction));
         // any type is fine
       }
       SolveAllTypeConstraints($"specification of {f.WhatKind} '{f.Name}'");
@@ -967,7 +968,7 @@ namespace Microsoft.Dafny {
       }
       if (f.Body != null) {
         var prevErrorCount = ErrorCount;
-        ResolveExpression(f.Body, new Resolver.ResolveOpts(f, f is TwoStateFunction));
+        ResolveExpression(f.Body, new ResolutionContext(f, f is TwoStateFunction));
         AddSubtypeConstraint(Type2PreType(f.ResultType), f.Body.PreType, f.tok, "Function body type mismatch (expected {0}, got {1})");
         SolveAllTypeConstraints($"body of {f.WhatKind} '{f.Name}'");
 
@@ -1020,12 +1021,12 @@ namespace Microsoft.Dafny {
 
         // Start resolving specification...
         foreach (AttributedExpression e in m.Req) {
-          ResolveAttributes(e, new Resolver.ResolveOpts(m, m is TwoStateLemma), false);
-          ResolveExpression(e.E, new Resolver.ResolveOpts(m, m is TwoStateLemma));
+          ResolveAttributes(e, new ResolutionContext(m, m is TwoStateLemma), false);
+          ResolveExpression(e.E, new ResolutionContext(m, m is TwoStateLemma));
           ConstrainTypeExprBool(e.E, "Precondition must be a boolean (got {0})");
         }
 
-        ResolveAttributes(m.Mod, new Resolver.ResolveOpts(m, false), false);
+        ResolveAttributes(m.Mod, new ResolutionContext(m, false), false);
         foreach (FrameExpression fe in m.Mod.Expressions) {
           ResolveFrameExpression(fe, Resolver.FrameExpressionUse.Modifies, m);
           if (m.IsLemmaLike) {
@@ -1036,9 +1037,9 @@ namespace Microsoft.Dafny {
 #endif
           }
         }
-        ResolveAttributes(m.Decreases, new Resolver.ResolveOpts(m, false), false);
+        ResolveAttributes(m.Decreases, new ResolutionContext(m, false), false);
         foreach (Expression e in m.Decreases.Expressions) {
-          ResolveExpression(e, new Resolver.ResolveOpts(m, m is TwoStateLemma));
+          ResolveExpression(e, new ResolutionContext(m, m is TwoStateLemma));
           // any type is fine
         }
 
@@ -1064,8 +1065,8 @@ namespace Microsoft.Dafny {
 
         // ... continue resolving specification
         foreach (AttributedExpression e in m.Ens) {
-          ResolveAttributes(e, new Resolver.ResolveOpts(m, true), false);
-          ResolveExpression(e.E, new Resolver.ResolveOpts(m, true));
+          ResolveAttributes(e, new ResolutionContext(m, true), false);
+          ResolveExpression(e.E, new ResolutionContext(m, true));
           ConstrainTypeExprBool(e.E, "Postcondition must be a boolean (got {0})");
         }
         SolveAllTypeConstraints($"specification of {m.WhatKind} '{m.Name}'");
@@ -1091,13 +1092,13 @@ namespace Microsoft.Dafny {
               }
             }
           }
-          ResolveBlockStatement(m.Body, m);
+          ResolveBlockStatement(m.Body, ResolutionContext.FromCodeContext(m));
           dominatingStatementLabels.PopMarker();
           SolveAllTypeConstraints($"body of {m.WhatKind} '{m.Name}'");
         }
 
         // attributes are allowed to mention both in- and out-parameters (including the implicit _k, for greatest lemmas)
-        ResolveAttributes(m, new Resolver.ResolveOpts(m, m is TwoStateLemma), true);
+        ResolveAttributes(m, new ResolutionContext(m, m is TwoStateLemma), true);
 
         DafnyOptions.O.WarnShadowing = warnShadowingOption; // restore the original warnShadowing value
         scope.PopMarker();  // for the out-parameters and outermost-level locals
@@ -1111,7 +1112,7 @@ namespace Microsoft.Dafny {
     void ResolveFrameExpression(FrameExpression fe, Resolver.FrameExpressionUse use, ICodeContext codeContext) {
       Contract.Requires(fe != null);
       Contract.Requires(codeContext != null);
-      ResolveExpression(fe.E, new Resolver.ResolveOpts(codeContext, codeContext is TwoStateLemma || use == Resolver.FrameExpressionUse.Unchanged));
+      ResolveExpression(fe.E, new ResolutionContext(codeContext, codeContext is TwoStateLemma || use == Resolver.FrameExpressionUse.Unchanged));
       AddGuardedConstraint(() => {
         DPreType dp = fe.E.PreType.Normalize() as DPreType;
         if (dp == null) {
