@@ -679,7 +679,7 @@ namespace Microsoft.Dafny {
 
         if (!(m is TwoStateLemma)) {
           // play havoc with the heap according to the modifies clause
-          builder.Add(new Boogie.HavocCmd(m.tok, new List<Boogie.IdentifierExpr> { (Boogie.IdentifierExpr/*TODO: this cast is rather dubious*/)etran.HeapExpr }));
+          builder.Add(new Boogie.HavocCmd(m.tok, new List<Boogie.IdentifierExpr> { etran.HeapCastToIdentifierExpr }));
           // assume the usual two-state boilerplate information
           foreach (BoilerplateTriple tri in GetTwoStateBoilerplate(m.tok, m.Mod.Expressions, m.IsGhost, m.AllowsAllocation, etran.Old, etran, etran.Old)) {
             if (tri.IsFree) {
@@ -753,34 +753,36 @@ namespace Microsoft.Dafny {
 
       if (m is TwoStateLemma) {
         // $Heap := current$Heap;
-        var heap = (Boogie.IdentifierExpr /*TODO: this cast is somewhat dubious*/)new ExpressionTranslator(this, predef, m.tok).HeapExpr;
+        var heap = ExpressionTranslator.HeapIdentifierExpr(predef, m.tok);
         builder.Add(Boogie.Cmd.SimpleAssign(m.tok, heap, new Boogie.IdentifierExpr(m.tok, "current$Heap", predef.HeapType)));
       }
 
 
       var substMap = new Dictionary<IVariable, Expression>();
       for (int i = 0; i < m.Ins.Count; i++) {
-        //get corresponsing formal in the class
+        // get corresponding formal in the class
         var ie = new IdentifierExpr(m.Ins[i].tok, m.Ins[i].AssignUniqueName(m.IdGenerator));
         ie.Var = m.Ins[i]; ie.Type = ie.Var.Type;
         substMap.Add(m.OverriddenMethod.Ins[i], ie);
       }
       for (int i = 0; i < m.Outs.Count; i++) {
-        //get corresponsing formal in the class
+        // get corresponding formal in the class
         var ie = new IdentifierExpr(m.Outs[i].tok, m.Outs[i].AssignUniqueName(m.IdGenerator));
         ie.Var = m.Outs[i]; ie.Type = ie.Var.Type;
         substMap.Add(m.OverriddenMethod.Outs[i], ie);
       }
 
+      var typeMap = GetTypeArgumentSubstitutionMap(m.OverriddenMethod, m);
+
       Boogie.StmtList stmts;
       //adding assume Pre’; assert P; // this checks that Pre’ implies P
-      AddMethodOverrideReqsChk(m, builder, etran, substMap);
+      AddMethodOverrideReqsChk(m, builder, etran, substMap, typeMap);
 
       //adding assert R <= Rank’;
-      AddOverrideTerminationChk(m, m.OverriddenMethod, builder, etran, substMap);
+      AddOverrideTerminationChk(m, m.OverriddenMethod, builder, etran, substMap, typeMap);
 
       //adding assert W <= Frame’
-      AddMethodOverrideSubsetChk(m, builder, etran, localVariables, substMap);
+      AddMethodOverrideSubsetChk(m, builder, etran, localVariables, substMap, typeMap);
 
       if (!(m is TwoStateLemma)) {
         //change the heap at locations W
@@ -788,7 +790,7 @@ namespace Microsoft.Dafny {
       }
 
       //adding assume Q; assert Post’;
-      AddMethodOverrideEnsChk(m, builder, etran, substMap);
+      AddMethodOverrideEnsChk(m, builder, etran, substMap, typeMap);
 
       stmts = builder.Collect(m.tok);
 
@@ -886,7 +888,7 @@ namespace Microsoft.Dafny {
       }
       // modifies $Heap, $Tick
       var mod = new List<Boogie.IdentifierExpr> {
-        (Boogie.IdentifierExpr/*TODO: this cast is rather dubious*/)ordinaryEtran.HeapExpr,
+        ordinaryEtran.HeapCastToIdentifierExpr,
         etran.Tick()
       };
       var ens = new List<Boogie.Ensures>();
@@ -912,7 +914,7 @@ namespace Microsoft.Dafny {
 
       if (f is TwoStateFunction) {
         // $Heap := current$Heap;
-        var heap = (Boogie.IdentifierExpr /*TODO: this cast is somewhat dubious*/)ordinaryEtran.HeapExpr;
+        var heap = ordinaryEtran.HeapCastToIdentifierExpr;
         builder.Add(Boogie.Cmd.SimpleAssign(f.tok, heap, etran.HeapExpr));
         etran = ordinaryEtran;  // we no longer need the special heap names
       }
@@ -933,18 +935,20 @@ namespace Microsoft.Dafny {
         substMap.Add(f.OverriddenFunction.Result, ie);
       }
 
+      var typeMap = GetTypeArgumentSubstitutionMap(f.OverriddenFunction, f);
+
       //adding assume Pre’; assert P; // this checks that Pre’ implies P
-      AddFunctionOverrideReqsChk(f, builder, etran, substMap);
+      AddFunctionOverrideReqsChk(f, builder, etran, substMap, typeMap);
 
       //adding assert R <= Rank’;
-      AddOverrideTerminationChk(f, f.OverriddenFunction, builder, etran, substMap);
+      AddOverrideTerminationChk(f, f.OverriddenFunction, builder, etran, substMap, typeMap);
 
       //adding assert W <= Frame’
-      AddFunctionOverrideSubsetChk(f, builder, etran, localVariables, substMap);
+      AddFunctionOverrideSubsetChk(f, builder, etran, localVariables, substMap, typeMap);
 
       //adding assume Q; assert Post’;
       //adding assume J.F(ins) == C.F(ins);
-      AddFunctionOverrideEnsChk(f, builder, etran, substMap, implInParams, implOutParams.Count == 0 ? null : implOutParams[0]);
+      AddFunctionOverrideEnsChk(f, builder, etran, substMap, typeMap, implInParams, implOutParams.Count == 0 ? null : implOutParams[0]);
 
       var stmts = builder.Collect(f.tok);
 
@@ -1176,7 +1180,9 @@ namespace Microsoft.Dafny {
       return typeMap;
     }
 
-    private void AddMethodOverrideEnsChk(Method m, BoogieStmtListBuilder builder, ExpressionTranslator etran, Dictionary<IVariable, Expression> substMap) {
+    private void AddMethodOverrideEnsChk(Method m, BoogieStmtListBuilder builder, ExpressionTranslator etran,
+      Dictionary<IVariable, Expression> substMap,
+      Dictionary<TypeParameter, Type> typeMap) {
       Contract.Requires(m != null);
       Contract.Requires(builder != null);
       Contract.Requires(etran != null);
@@ -1187,7 +1193,7 @@ namespace Microsoft.Dafny {
       }
       //generating trait post-conditions with class variables
       foreach (var en in m.OverriddenMethod.Ens) {
-        Expression postcond = Substitute(en.E, null, substMap);
+        Expression postcond = Substitute(en.E, null, substMap, typeMap);
         bool splitHappened;  // we actually don't care
         foreach (var s in TrSplitExpr(postcond, etran, false, out splitHappened)) {
           if (s.IsChecked) {
@@ -1197,14 +1203,16 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private void AddMethodOverrideReqsChk(Method m, BoogieStmtListBuilder builder, ExpressionTranslator etran, Dictionary<IVariable, Expression> substMap) {
+    private void AddMethodOverrideReqsChk(Method m, BoogieStmtListBuilder builder, ExpressionTranslator etran,
+      Dictionary<IVariable, Expression> substMap,
+      Dictionary<TypeParameter, Type> typeMap) {
       Contract.Requires(m != null);
       Contract.Requires(builder != null);
       Contract.Requires(etran != null);
       Contract.Requires(substMap != null);
       //generating trait pre-conditions with class variables
       foreach (var req in m.OverriddenMethod.Req) {
-        Expression precond = Substitute(req.E, null, substMap);
+        Expression precond = Substitute(req.E, null, substMap, typeMap);
         builder.Add(TrAssumeCmd(m.tok, etran.TrExpr(precond)));
       }
       //generating class pre-conditions
@@ -1218,7 +1226,9 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private void AddOverrideTerminationChk(ICallable original, ICallable overryd, BoogieStmtListBuilder builder, ExpressionTranslator etran, Dictionary<IVariable, Expression> substMap) {
+    private void AddOverrideTerminationChk(ICallable original, ICallable overryd, BoogieStmtListBuilder builder, ExpressionTranslator etran,
+      Dictionary<IVariable, Expression> substMap,
+      Dictionary<TypeParameter, Type> typeMap) {
       Contract.Requires(original != null);
       Contract.Requires(overryd != null);
       Contract.Requires(builder != null);
@@ -1242,7 +1252,7 @@ namespace Microsoft.Dafny {
 
       for (int i = 0; i < N; i++) {
         Expression e0 = calleeDecreases[i];
-        Expression e1 = Substitute(contextDecreases[i], null, substMap);
+        Expression e1 = Substitute(contextDecreases[i], null, substMap, typeMap);
         if (!CompatibleDecreasesTypes(e0.Type, e1.Type)) {
           N = i;
           break;
@@ -1283,13 +1293,15 @@ namespace Microsoft.Dafny {
       builder.Add(Assert(original.Tok, decrChk, new PODesc.TraitDecreases(original.WhatKind)));
     }
 
-    private void AddMethodOverrideSubsetChk(Method m, BoogieStmtListBuilder builder, ExpressionTranslator etran, List<Variable> localVariables, Dictionary<IVariable, Expression> substMap) {
+    private void AddMethodOverrideSubsetChk(Method m, BoogieStmtListBuilder builder, ExpressionTranslator etran, List<Variable> localVariables,
+      Dictionary<IVariable, Expression> substMap,
+      Dictionary<TypeParameter, Type> typeMap) {
       //getting framePrime
       List<FrameExpression> traitFrameExps = new List<FrameExpression>();
       List<FrameExpression> classFrameExps = m.Mod != null ? m.Mod.Expressions : new List<FrameExpression>();
       if (m.OverriddenMethod.Mod != null) {
         foreach (var e in m.OverriddenMethod.Mod.Expressions) {
-          var newE = Substitute(e.E, null, substMap);
+          var newE = Substitute(e.E, null, substMap, typeMap);
           FrameExpression fe = new FrameExpression(e.tok, newE, e.FieldName);
           traitFrameExps.Add(fe);
         }
@@ -1323,7 +1335,7 @@ namespace Microsoft.Dafny {
       Boogie.Expr consequent2 = InRWClause(tok, o, f, traitFrameExps, etran, null, null);
       Boogie.Expr q = new Boogie.ForallExpr(tok, new List<TypeVariable> { alpha }, new List<Variable> { oVar, fVar },
         Boogie.Expr.Imp(Boogie.Expr.And(ante, oInCallee), consequent2));
-      builder.Add(Assert(tok, q, new PODesc.TraitFrame(true), kv));
+      builder.Add(Assert(tok, q, new PODesc.TraitFrame(m.WhatKind, true), kv));
     }
 
     /// <summary>
@@ -1394,7 +1406,7 @@ namespace Microsoft.Dafny {
           index++;
         }
       }
-      mod.Add((Boogie.IdentifierExpr/*TODO: this cast is somewhat dubious*/)ordinaryEtran.HeapExpr);
+      mod.Add(ordinaryEtran.HeapCastToIdentifierExpr);
       mod.Add(etran.Tick());
 
       var bodyKind = kind == MethodTranslationKind.SpecWellformedness || kind == MethodTranslationKind.Implementation;
@@ -1414,7 +1426,7 @@ namespace Microsoft.Dafny {
               } else if (s.IsOnlyFree && !bodyKind) {
                 // don't include in split -- it would be ignored, anyhow
               } else {
-                req.Add(Requires(s.E.tok, s.IsOnlyFree, s.E, errorMessage, comment));
+                req.Add(Requires(s.Tok, s.IsOnlyFree, s.E, errorMessage, comment));
                 comment = null;
                 // the free here is not linked to the free on the original expression (this is free things generated in the splitting.)
               }
@@ -1428,7 +1440,7 @@ namespace Microsoft.Dafny {
           comment = null;
           foreach (var s in TrSplitExprForMethodSpec(p.E, etran, kind)) {
             var post = s.E;
-            if (kind == MethodTranslationKind.Implementation && RefinementToken.IsInherited(s.E.tok, currentModule)) {
+            if (kind == MethodTranslationKind.Implementation && RefinementToken.IsInherited(s.Tok, currentModule)) {
               // this postcondition was inherited into this module, so make it into the form "$_reverifyPost ==> s.E"
               post = Boogie.Expr.Imp(new Boogie.IdentifierExpr(s.E.tok, "$_reverifyPost", Boogie.Type.Bool), post);
             }
@@ -1437,7 +1449,7 @@ namespace Microsoft.Dafny {
             } else if (s.IsOnlyChecked && !bodyKind) {
               // don't include in split
             } else {
-              AddEnsures(ens, Ensures(s.E.tok, s.IsOnlyFree, post, errorMessage, null));
+              AddEnsures(ens, Ensures(s.Tok, s.IsOnlyFree, post, errorMessage, null));
             }
           }
         }

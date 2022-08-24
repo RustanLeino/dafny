@@ -18,6 +18,18 @@ namespace Microsoft.Dafny {
         // below), but also, the debugger may invoke HeapExpr and that will cause an increment as well.
         get { Statistics_HeapUses++; return _the_heap_expr; }
       }
+
+      /// <summary>
+      /// Return HeapExpr as an IdentifierExpr.
+      /// CAUTION: This getter should be used only if the caller "knows" that HeapExpr really is an IdentifierExpr.
+      /// </summary>
+      public Boogie.IdentifierExpr HeapCastToIdentifierExpr {
+        get {
+          Contract.Assume(HeapExpr is Boogie.IdentifierExpr);
+          return (Boogie.IdentifierExpr)HeapExpr;
+        }
+      }
+
       public readonly PredefinedDecls predef;
       public readonly Translator translator;
       public readonly string This;
@@ -69,8 +81,12 @@ namespace Microsoft.Dafny {
         this.stripLits = stripLits;
       }
 
-      public ExpressionTranslator(Translator translator, PredefinedDecls predef, IToken heapToken)
-        : this(translator, predef, new Boogie.IdentifierExpr(heapToken, predef.HeapVarName, predef.HeapType)) {
+      public static Boogie.IdentifierExpr HeapIdentifierExpr(PredefinedDecls predef, Boogie.IToken heapToken) {
+        return new Boogie.IdentifierExpr(heapToken, predef.HeapVarName, predef.HeapType);
+      }
+
+      public ExpressionTranslator(Translator translator, PredefinedDecls predef, Boogie.IToken heapToken)
+        : this(translator, predef, HeapIdentifierExpr(predef, heapToken)) {
         Contract.Requires(translator != null);
         Contract.Requires(predef != null);
         Contract.Requires(heapToken != null);
@@ -597,7 +613,7 @@ namespace Microsoft.Dafny {
             var mem = recv as MemberSelectExpr;
             var fn = mem == null ? null : mem.Member as Function;
             if (fn != null) {
-              return TrExpr(new FunctionCallExpr(GetToken(e), fn.Name, mem.Obj, GetToken(e), e.Args) {
+              return TrExpr(new FunctionCallExpr(e.tok, fn.Name, mem.Obj, e.tok, e.CloseParen, e.Args) {
                 Function = fn,
                 Type = e.Type,
                 TypeApplication_AtEnclosingClass = mem.TypeApplication_AtEnclosingClass,
@@ -1440,7 +1456,7 @@ namespace Microsoft.Dafny {
           return new Boogie.NAryExpr(GetToken(expr), new Boogie.FunctionCall(id), args);
         }
       }
-      public Expr TrToFunctionCall(IToken tok, string function, Boogie.Type returnType, Boogie.Expr e0, Boogie.Expr e1, bool liftLit) {
+      public Expr TrToFunctionCall(Boogie.IToken tok, string function, Boogie.Type returnType, Boogie.Expr e0, Boogie.Expr e1, bool liftLit) {
         Boogie.Expr re = FunctionCall(tok, function, returnType, e0, e1);
         if (liftLit) {
           re = MaybeLit(re, returnType);

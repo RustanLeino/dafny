@@ -43,7 +43,7 @@ namespace Microsoft.Dafny {
         var s = (BreakStmt)stmt;
         AddComment(builder, stmt, $"{s.Kind} statement");
         var lbl = (s.IsContinue ? "continue_" : "after_") + s.TargetStmt.Labels.Data.AssignUniqueId(CurrentIdGenerator);
-        builder.Add(new GotoCmd(s.Tok, new List<String> { lbl }));
+        builder.Add(new GotoCmd(s.Tok, new List<string> { lbl }));
       } else if (stmt is ReturnStmt) {
         var s = (ReturnStmt)stmt;
         AddComment(builder, stmt, "return statement");
@@ -81,7 +81,7 @@ namespace Microsoft.Dafny {
           var rhs = new BinaryExpr(s.Tok, BinaryExpr.Opcode.Add, dafnyYs, dafnySingletonY);
           rhs.ResolvedOp = BinaryExpr.ResolvedOpcode.Concat;
           rhs.Type = ys.Type;  // resolve here
-          var cmd = Bpl.Cmd.SimpleAssign(s.Tok, (Bpl.IdentifierExpr/*TODO: this cast is rather dubious*/)etran.HeapExpr,
+          var cmd = Bpl.Cmd.SimpleAssign(s.Tok, etran.HeapCastToIdentifierExpr,
             ExpressionTranslator.UpdateHeap(s.Tok, etran.HeapExpr, etran.TrExpr(th), new Bpl.IdentifierExpr(s.Tok, GetField(ys)), etran.TrExpr(rhs)));
           builder.Add(cmd);
         }
@@ -98,10 +98,10 @@ namespace Microsoft.Dafny {
           bool splitHappened;  // actually, we don't care
           var ss = TrSplitExpr(p.E, yeEtran, true, out splitHappened);
           foreach (var split in ss) {
-            if (RefinementToken.IsInherited(split.E.tok, currentModule)) {
+            if (RefinementToken.IsInherited(split.Tok, currentModule)) {
               // this postcondition was inherited into this module, so just ignore it
             } else if (split.IsChecked) {
-              var yieldToken = new NestedToken(s.Tok, split.E.tok);
+              var yieldToken = new NestedToken(s.Tok, split.Tok);
               var desc = new PODesc.YieldEnsures();
               builder.Add(AssertNS(yieldToken, split.E, desc, stmt.Tok, null));
             }
@@ -347,7 +347,7 @@ namespace Microsoft.Dafny {
           // preModifyHeap := $Heap;
           builder.Add(Bpl.Cmd.SimpleAssign(s.Tok, preModifyHeap, etran.HeapExpr));
           // havoc $Heap;
-          builder.Add(new Bpl.HavocCmd(s.Tok, new List<Bpl.IdentifierExpr> { (Bpl.IdentifierExpr/*TODO: this cast is rather dubious*/)etran.HeapExpr }));
+          builder.Add(new Bpl.HavocCmd(s.Tok, new List<Bpl.IdentifierExpr> { etran.HeapCastToIdentifierExpr }));
           // assume $HeapSucc(preModifyHeap, $Heap);   OR $HeapSuccGhost
           builder.Add(TrAssumeCmd(s.Tok, HeapSucc(preModifyHeap, etran.HeapExpr, s.IsGhost)));
           // assume nothing outside the frame was changed
@@ -559,9 +559,9 @@ namespace Microsoft.Dafny {
         } else {
           foreach (var split in ss) {
             if (split.IsChecked) {
-              var tok = enclosingToken == null ? split.E.tok : new NestedToken(enclosingToken, split.E.tok);
+              var tok = enclosingToken == null ? split.E.tok : new NestedToken(enclosingToken, split.Tok);
               var desc = new PODesc.AssertStatement(errorMessage);
-              (proofBuilder ?? b).Add(AssertNS(tok, split.E, desc, stmt.Tok,
+              (proofBuilder ?? b).Add(AssertNS(ToDafnyToken(tok), split.E, desc, stmt.Tok,
                 etran.TrAttributes(stmt.Attributes, null))); // attributes go on every split
             }
           }
@@ -993,9 +993,9 @@ namespace Microsoft.Dafny {
       //     havoc x,y;
       //     CheckWellformed( Range );
       //     assume Range(x,y);
-      //     Tr( Body );
       //     CheckWellformed( Post );
-      //     assert Post;
+      //     Tr( Body );       // include only if there is a Body
+      //     assert Post;      // include only if there is a Body
       //     assume false;
       //   } else {
       //     assume (forall x,y :: Range(x,y) ==> Post(x,y));
@@ -1022,16 +1022,22 @@ namespace Microsoft.Dafny {
       TrStmt_CheckWellformed(s.Range, definedness, locals, etran, false);
       definedness.Add(TrAssumeCmd(s.Range.tok, etran.TrExpr(s.Range)));
 
+      var ensuresDefinedness = new BoogieStmtListBuilder(this);
+      foreach (var ens in s.Ens) {
+        TrStmt_CheckWellformed(ens.E, ensuresDefinedness, locals, etran, false);
+        ensuresDefinedness.Add(TrAssumeCmd(ens.E.tok, etran.TrExpr(ens.E)));
+      }
+      PathAsideBlock(s.Tok, ensuresDefinedness, definedness);
+
       if (s.Body != null) {
         TrStmt(s.Body, definedness, locals, etran);
 
         // check that postconditions hold
         foreach (var ens in s.Ens) {
-
           bool splitHappened;  // we actually don't care
           foreach (var split in TrSplitExpr(ens.E, etran, true, out splitHappened)) {
             if (split.IsChecked) {
-              definedness.Add(Assert(split.E.tok, split.E, new PODesc.ForallPostcondition()));
+              definedness.Add(Assert(split.Tok, split.E, new PODesc.ForallPostcondition()));
             }
           }
         }
@@ -1221,7 +1227,7 @@ namespace Microsoft.Dafny {
       Bpl.IdentifierExpr prevHeap = GetPrevHeapVar_IdExpr(s.Tok, locals);
       var prevEtran = new ExpressionTranslator(this, predef, prevHeap);
       updater.Add(Bpl.Cmd.SimpleAssign(s.Tok, prevHeap, etran.HeapExpr));
-      updater.Add(new Bpl.HavocCmd(s.Tok, new List<Bpl.IdentifierExpr> { (Bpl.IdentifierExpr/*TODO: this cast is rather dubious*/)etran.HeapExpr }));
+      updater.Add(new Bpl.HavocCmd(s.Tok, new List<Bpl.IdentifierExpr> { etran.HeapCastToIdentifierExpr }));
       updater.Add(TrAssumeCmd(s.Tok, HeapSucc(prevHeap, etran.HeapExpr)));
 
       // Here comes:
@@ -1394,7 +1400,7 @@ namespace Microsoft.Dafny {
           foreach (var split in ss) {
             var wInv = Bpl.Expr.Binary(split.E.tok, BinaryOperator.Opcode.Imp, w, split.E);
             if (split.IsChecked) {
-              invariants.Add(Assert(split.E.tok, wInv, new PODesc.LoopInvariant(errorMessage)));  // TODO: it would be fine to have this use {:subsumption 0}
+              invariants.Add(Assert(split.Tok, wInv, new PODesc.LoopInvariant(errorMessage)));  // TODO: it would be fine to have this use {:subsumption 0}
             } else {
               invariants.Add(TrAssumeCmd(split.E.tok, wInv));
             }
@@ -1512,7 +1518,7 @@ namespace Microsoft.Dafny {
         // maintenance check vaccuous.
         var bplTargets = bodySurrogate.LocalLoopTargets.ConvertAll(v => TrVar(s.Tok, v));
         if (bodySurrogate.UsesHeap) {
-          bplTargets.Add((Bpl.IdentifierExpr /*TODO: this cast is rather dubious*/)etran.HeapExpr);
+          bplTargets.Add(etran.HeapCastToIdentifierExpr);
         }
         loopBodyBuilder.Add(new Bpl.HavocCmd(s.Tok, bplTargets));
         loopBodyBuilder.Add(Bpl.Cmd.SimpleAssign(s.Tok, w, Bpl.Expr.False));
@@ -1609,10 +1615,9 @@ namespace Microsoft.Dafny {
 
       List<AssignToLhs> lhsBuilders;
       List<Bpl.IdentifierExpr> bLhss;
-      Bpl.Expr[] ignore1, ignore2;
-      string[] ignore3;
       var tySubst = s.MethodSelect.TypeArgumentSubstitutionsWithParents();
-      ProcessLhss(s.Lhs, true, true, builder, locals, etran, out lhsBuilders, out bLhss, out ignore1, out ignore2, out ignore3, s.OriginalInitialLhs);
+      ProcessLhss(s.Lhs, true, true, builder, locals, etran, out lhsBuilders, out bLhss,
+        out _, out _, out _, s.OriginalInitialLhs);
       Contract.Assert(s.Lhs.Count == lhsBuilders.Count);
       Contract.Assert(s.Lhs.Count == bLhss.Count);
       var lhsTypes = new List<Type>();
@@ -1680,7 +1685,7 @@ namespace Microsoft.Dafny {
       if (codeContext is IteratorDecl) {
         var iter = (IteratorDecl)codeContext;
         Contract.Assert(initHeap != null);
-        RecordNewObjectsIn_New(s.Tok, iter, initHeap, (Bpl.IdentifierExpr/*TODO: this cast is dubious*/)etran.HeapExpr, builder, locals, etran);
+        RecordNewObjectsIn_New(s.Tok, iter, initHeap, etran.HeapCastToIdentifierExpr, builder, locals, etran);
       }
       builder.AddCaptureState(s);
     }
@@ -1812,7 +1817,7 @@ namespace Microsoft.Dafny {
         }
         Bpl.Cmd cmd = Bpl.Cmd.SimpleAssign(formal.tok, param, bActual);
         builder.Add(cmd);
-        ins.Add(CondApplyBox(param.tok, param, Resolver.SubstType(formal.Type, tySubst), formal.Type));
+        ins.Add(CondApplyBox(ToDafnyToken(param.tok), param, Resolver.SubstType(formal.Type, tySubst), formal.Type));
       }
 
       // Check that every parameter is available in the state in which the method is invoked; this means checking that it has
@@ -2009,7 +2014,7 @@ namespace Microsoft.Dafny {
         var initEtran = new ExpressionTranslator(this, predef, initHeap, etran.Old.HeapExpr);
         // initHeap := $Heap;
         exporter.Add(Bpl.Cmd.SimpleAssign(tok, initHeap, etran.HeapExpr));
-        var heapIdExpr = (Bpl.IdentifierExpr/*TODO: this cast is rather dubious*/)etran.HeapExpr;
+        var heapIdExpr = etran.HeapCastToIdentifierExpr;
         // advance $Heap, Tick;
         exporter.Add(new Bpl.HavocCmd(tok, new List<Bpl.IdentifierExpr> { heapIdExpr, etran.Tick() }));
         Contract.Assert(s0.Method.Mod.Expressions.Count == 0);  // checked by the resolver
