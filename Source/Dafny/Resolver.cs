@@ -2662,8 +2662,11 @@ namespace Microsoft.Dafny {
         u.Check(declarations);
       }
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        var u = new TypeImprover(this);
+        var u = new SubsetTypeImprover(this);
         u.Improve(declarations);
+        u.PrintConstraints($"pre-solution (module {moduleName})");
+        u.SolveConstraints();
+        u.PrintConstraints($"post-solution (module {moduleName})");
       }
 #endif
       prevErrorCount = reporter.Count(ErrorLevel.Error);

@@ -5,19 +5,51 @@
 //
 //-----------------------------------------------------------------------------
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Diagnostics.Contracts;
+using JetBrains.Annotations;
 using Microsoft.Boogie;
 using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
-  public interface TypeImprovement {
-
+  public interface TypeImprovementValue {
   }
 
-  public class TypeImprover : ResolverPass {
+  public abstract record TypeImprovement {
+    public static TypeImprovement Top = new TypeImprovementConstant(null);
+
+    [CanBeNull]
+    public abstract TypeImprovementValue Evaluate();
+  }
+
+  /// <summary>
+  /// A "Value" of "null" indicates the constant \top.
+  /// </summary>
+  public record TypeImprovementConstant([CanBeNull] TypeImprovementValue Value) : TypeImprovement {
+    public override string ToString() => Value == null ? "\\top" : $"Value({Value})";
+
+    public override TypeImprovementValue Evaluate() => Value;
+  }
+
+  public record TypeImprovementVariable(string Name) : TypeImprovement {
+    /// <summary>
+    /// "CurrentValue == null" indicates \bottom.
+    /// "CurrentValue == TypeImprovementConstant(null)" indicates \top.
+    /// </summary>
+    public TypeImprovementConstant CurrentValue;
+
+    public override string ToString() {
+      var value = CurrentValue == null ? "\\bottom" : CurrentValue.ToString();
+      return $"Var(\"{Name}\", current := {value})";
+    }
+
+    public override TypeImprovementValue Evaluate() => CurrentValue.Evaluate();
+  }
+
+  public abstract class TypeImprover : ResolverPass {
     public TypeImprover(Resolver resolver)
       : base(resolver) {
     }
@@ -122,17 +154,24 @@ namespace Microsoft.Dafny {
     }
 
     void ImproveMember(MemberDecl member) {
-      if (member is ConstantField field) {
-        if (field.Rhs != null) {
-          VisitExpression(field.Rhs);
-          Improve(field.TypeImprovement, field.Rhs.TypeImprovement);
-        }
+      if (member is ConstantField cfield && cfield.Rhs != null) {
+        VisitExpression(cfield.Rhs);
+        var tiVar = new TypeImprovementVariable(cfield.Name);
+        cfield.TypeImprovement = tiVar;
+        AddConstraint(tiVar, cfield.Rhs.TypeImprovement);
+
+      } else if (member is Field field) {
+        field.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(field.Type));
 
       } else if (member is Method method) {
         foreach (var formal in method.Ins) {
+          formal.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
           if (formal.DefaultValue != null) {
             VisitExpression(formal.DefaultValue);
           }
+        }
+        foreach (var formal in method.Outs) {
+          formal.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
         }
         method.Req.Iter(VisitAttributedExpression);
         VisitSpecFrameExpression(method.Mod);
@@ -145,6 +184,7 @@ namespace Microsoft.Dafny {
       } else if (member is Function) {
         var f = (Function)member;
         foreach (var formal in f.Formals) {
+          formal.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
           if (formal.DefaultValue != null) {
             VisitExpression(formal.DefaultValue);
           }
@@ -167,9 +207,9 @@ namespace Microsoft.Dafny {
       }
     }
 
-    void Improve(TypeImprovement target, TypeImprovement rhs) {
-      // TODO: this should, more or less, set target to Meet(target, rhs)
-    }
+    [CanBeNull] public abstract TypeImprovementValue FromUserProvidedType(Type type);
+
+    [CanBeNull] public abstract TypeImprovementValue Join(TypeImprovementValue a, TypeImprovementValue b);
 
     void VisitAttributes(Attributes attrs) {
       for (; attrs != null; attrs = attrs.Prev) {
@@ -193,11 +233,97 @@ namespace Microsoft.Dafny {
     }
 
     void VisitExpression(Expression expr) {
-      // TODO
+      foreach (var e in expr.SubExpressions) {
+        VisitExpression(e);
+      }
+
+      if (expr is IdentifierExpr idExpr) {
+        if (idExpr.Var is LocalVariable local) {
+          Contract.Assert(local.TypeImprovement != null);
+          expr.TypeImprovement = local.TypeImprovement;
+          return;
+        } else if (idExpr.Var is Formal formal) {
+          expr.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
+          return;
+        }
+      } else if (expr is ConcreteSyntaxExpression concreteSyntaxExpression) {
+        concreteSyntaxExpression.TypeImprovement = concreteSyntaxExpression.ResolvedExpression.TypeImprovement;
+        return;
+      }
+
+      // If nothing else, use \top.
+      expr.TypeImprovement = TypeImprovement.Top;
     }
 
     void VisitStatement(Statement stmt) {
+      foreach (var expr in stmt.SubExpressions) {
+        VisitExpression(expr);
+      }
 
+      if (stmt is VarDeclStmt varDeclStmt) {
+        foreach (var local in varDeclStmt.Locals) {
+          Contract.Assert(local.TypeImprovement == null);
+          var declaredImprovement = FromUserProvidedType(local.OptionalType);
+          if (declaredImprovement != null) {
+            local.TypeImprovement = new TypeImprovementConstant(declaredImprovement);
+          } else {
+            local.TypeImprovement = new TypeImprovementVariable(local.Name);
+          }
+        }
+      } else if (stmt is AssignStmt assignStmt) {
+        if (assignStmt.Lhs is IdentifierExpr idExpr && idExpr.Var is IVariable local && local.TypeImprovement is TypeImprovementVariable tiVar) {
+          if (assignStmt.Rhs is ExprRhs exprRhs) {
+            AddConstraint(tiVar, exprRhs.Expr.TypeImprovement);
+          }
+        }
+      }
+
+      foreach (var s in stmt.SubStatements) {
+        VisitStatement(s);
+      }
+    }
+
+    private List<(TypeImprovementVariable, TypeImprovement)> constraints = new();
+
+    public void PrintConstraints(string header) {
+      Console.WriteLine($"----------- {header} -------------");
+      foreach (var (a, b) in constraints) {
+        Console.WriteLine($"    {a.Name} <- {b}");
+      }
+    }
+
+    void AddConstraint(TypeImprovementVariable a, TypeImprovement b) {
+      constraints.Add((a, b));
+    }
+
+    public void SolveConstraints() {
+      bool anyChange;
+
+      void update(TypeImprovementVariable tiVar, TypeImprovementValue value) {
+        if (tiVar.CurrentValue == null || tiVar.CurrentValue.Value != value) {
+          var printValue = value == null ? "\\top" : value.ToString();
+          Console.WriteLine($"  --updating {tiVar.Name} := {printValue}");
+          tiVar.CurrentValue = new TypeImprovementConstant(value);
+          anyChange = true;
+        }
+      }
+
+      do {
+        anyChange = false;
+        foreach (var (a, b) in constraints) {
+          if (a is TypeImprovementVariable tiVar) {
+            var bValue = b.Evaluate();
+            if (tiVar.CurrentValue == null || bValue == null) {
+              // tiVar.CurrentValue is \bottom or b is \top
+              update(tiVar, bValue);
+            } else if (tiVar.CurrentValue.Value == null) {
+              // tiVar.CurrentValue is \top
+            } else {
+              update(tiVar, Join(tiVar.CurrentValue.Value, bValue));
+            }
+          }
+        }
+      } while (anyChange);
     }
   }
 }

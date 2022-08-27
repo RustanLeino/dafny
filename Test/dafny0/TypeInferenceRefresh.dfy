@@ -756,6 +756,18 @@ module Frames {
   }
 }
 
+module NeverNever {
+  type Never = x: int | false witness *
+
+  method Test() {
+    var n; // type of 'n' is inferred to be Never, but since 'n' is never used, the verifier has nothing to complain about
+    if false {
+      var u: Never;
+      n := u;
+    }
+  }
+}
+
 
 /****************************************************************************************
  ******** TO DO *************************************************************************

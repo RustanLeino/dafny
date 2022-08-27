@@ -37,7 +37,7 @@ module As {
 
 module Underspecification0 {
   method P() {
-    var u;
+    var u; // error: type is underspecified
     var w := !u; // error: type is underspecified
   }
 }
