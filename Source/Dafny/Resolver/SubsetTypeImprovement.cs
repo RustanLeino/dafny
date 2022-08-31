@@ -16,11 +16,10 @@ namespace Microsoft.Dafny {
   public class SubsetTypeImprovementValue : TypeImprovementValue {
     public readonly SubsetTypeDecl Decl;
 
-    public override string ToString() {
-      return Decl.Name;
-    }
+    public override string ToString() => Decl.Name + ArgumentsToString();
 
-    public SubsetTypeImprovementValue(SubsetTypeDecl decl) {
+    public SubsetTypeImprovementValue(SubsetTypeDecl decl, [CanBeNull] List<TypeImprovementValue> arguments = null)
+    : base(arguments) {
       Decl = decl;
     }
   }
@@ -32,9 +31,13 @@ namespace Microsoft.Dafny {
 
     [CanBeNull]
     public override TypeImprovementValue FromUserProvidedType(Type type) {
-      var decl = type.AsSubsetType;
-      if (decl != null) {
-        return new SubsetTypeImprovementValue(decl);
+      type = type.NormalizeExpandKeepConstraints();
+      if (type is UserDefinedType udt && udt.ResolvedClass is SubsetTypeDecl subsetTypeDecl) {
+        if (type.TypeArgs.Count == 0) {
+          return new SubsetTypeImprovementValue(subsetTypeDecl);
+        } else {
+          return new SubsetTypeImprovementValue(subsetTypeDecl, type.TypeArgs.ConvertAll(FromUserProvidedType));
+        }
       } else {
         return null;
       }

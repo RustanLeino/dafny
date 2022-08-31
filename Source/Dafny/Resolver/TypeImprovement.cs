@@ -15,11 +15,34 @@ using Microsoft.Boogie;
 using Bpl = Microsoft.Boogie;
 
 namespace Microsoft.Dafny {
-  public interface TypeImprovementValue {
+  /// <summary>
+  /// TypeImprovementValue is to have subclass implementations in each TypeImprovement system.
+  /// </summary>
+  public abstract class TypeImprovementValue {
+    public static readonly TypeImprovementValue Top = null;
+    [CanBeNull] public readonly List<TypeImprovementValue> Arguments; // null is a synonymous with .Count == 0 (which is a common case)
+
+    public string ArgumentsToString() {
+      if (Arguments == null) {
+        return "";
+      } else {
+        return $"<{Arguments.Comma(arg => arg.PrintString())}>";
+      }
+    }
+
+    public TypeImprovementValue([CanBeNull] List<TypeImprovementValue> arguments = null) {
+      Arguments = arguments;
+    }
+  }
+
+  public static class TypeImprovementValueExtensionMethods {
+    public static string PrintString(this TypeImprovementValue th) {
+      return th == null ? "\\top" : th.ToString();
+    }
   }
 
   public abstract record TypeImprovement {
-    public static TypeImprovement Top = new TypeImprovementConstant(null);
+    public static readonly TypeImprovement Top = new TypeImprovementConstant(TypeImprovementValue.Top);
 
     [CanBeNull]
     public abstract TypeImprovementValue Evaluate();
@@ -29,24 +52,41 @@ namespace Microsoft.Dafny {
   /// A "Value" of "null" indicates the constant \top.
   /// </summary>
   public record TypeImprovementConstant([CanBeNull] TypeImprovementValue Value) : TypeImprovement {
-    public override string ToString() => Value == null ? "\\top" : $"Value({Value})";
+    public override string ToString() => $"Const({Value.PrintString()})";
 
     public override TypeImprovementValue Evaluate() => Value;
   }
 
   public record TypeImprovementVariable(string Name) : TypeImprovement {
     /// <summary>
-    /// "CurrentValue == null" indicates \bottom.
-    /// "CurrentValue == TypeImprovementConstant(null)" indicates \top.
+    /// "CurrentValue == Bottom" indicates \bottom.
+    /// "CurrentValue == TypeImprovement.Top" indicates \top.
     /// </summary>
-    public TypeImprovementConstant CurrentValue;
+    public TypeImprovementValue CurrentValue = Bottom;
+
+    public bool IsBottom => CurrentValue == Bottom;
+
+    private class BottomValue : TypeImprovementValue {
+      public override string ToString() => "\\bottom";
+    }
+
+    private static readonly BottomValue Bottom = new BottomValue();
+
+    public bool Update(TypeImprovementValue tiValue) {
+      if (CurrentValue == Bottom || CurrentValue != tiValue) {
+        Console.WriteLine($"  --updating {Name} := {tiValue.PrintString()}");
+        CurrentValue = tiValue;
+        return true; // value was updated
+      }
+      return false; // no change to the value
+    }
 
     public override string ToString() {
-      var value = CurrentValue == null ? "\\bottom" : CurrentValue.ToString();
+      var value = CurrentValue.PrintString();
       return $"Var(\"{Name}\", current := {value})";
     }
 
-    public override TypeImprovementValue Evaluate() => CurrentValue.Evaluate();
+    public override TypeImprovementValue Evaluate() => CurrentValue;
   }
 
   public abstract class TypeImprover : ResolverPass {
@@ -299,27 +339,16 @@ namespace Microsoft.Dafny {
     public void SolveConstraints() {
       bool anyChange;
 
-      void update(TypeImprovementVariable tiVar, TypeImprovementValue value) {
-        if (tiVar.CurrentValue == null || tiVar.CurrentValue.Value != value) {
-          var printValue = value == null ? "\\top" : value.ToString();
-          Console.WriteLine($"  --updating {tiVar.Name} := {printValue}");
-          tiVar.CurrentValue = new TypeImprovementConstant(value);
-          anyChange = true;
-        }
-      }
-
       do {
         anyChange = false;
         foreach (var (a, b) in constraints) {
           if (a is TypeImprovementVariable tiVar) {
             var bValue = b.Evaluate();
-            if (tiVar.CurrentValue == null || bValue == null) {
-              // tiVar.CurrentValue is \bottom or b is \top
-              update(tiVar, bValue);
-            } else if (tiVar.CurrentValue.Value == null) {
-              // tiVar.CurrentValue is \top
+            if (tiVar.IsBottom || bValue == TypeImprovementValue.Top) {
+              anyChange = tiVar.Update(bValue) || anyChange;
+            } else if (tiVar.CurrentValue == TypeImprovementValue.Top) {
             } else {
-              update(tiVar, Join(tiVar.CurrentValue.Value, bValue));
+              anyChange = tiVar.Update(Join(tiVar.CurrentValue, bValue)) || anyChange;
             }
           }
         }

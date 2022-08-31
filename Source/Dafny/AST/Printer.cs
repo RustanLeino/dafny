@@ -244,14 +244,14 @@ namespace Microsoft.Dafny {
           wr.Write(" = ");
           if (dd.Var == null) {
             PrintType(dd.BaseType);
-            PrintPreType(dd.BasePreType);
+            PrintPreType(dd.BasePreType, null);
             wr.WriteLine();
           } else {
             wr.Write(dd.Var.DisplayName);
             if (ShowType(dd.Var.Type)) {
               wr.Write(": ");
               PrintType(dd.BaseType);
-              PrintPreType(dd.BasePreType);
+              PrintPreType(dd.BasePreType, null);
             }
             wr.WriteLine();
             Indent(indent + IndentAmount);
@@ -280,7 +280,7 @@ namespace Microsoft.Dafny {
           if (ShowType(dd.Var.Type)) {
             wr.Write(": ");
             PrintType(dd.Rhs);
-            PrintPreType(dd.Var.PreType);
+            PrintPreType(dd.Var.PreType, null);
           }
           if (dd is NonNullTypeDecl) {
             wr.Write(" ");
@@ -1113,14 +1113,19 @@ namespace Microsoft.Dafny {
       }
     }
 
-    public void PrintPreType(PreType preType) {
-      wr.Write(PreTypeString(preType));
+    public void PrintPreType(PreType preType, TypeImprovement improvement) {
+      wr.Write(PreTypeString(preType, improvement));
     }
 
-    public string PreTypeString(PreType preType) {
+    public string PreTypeString(PreType preType, TypeImprovement improvement) {
       if (DafnyOptions.O.DafnyPrintResolvedFile != null) {
 #if PRETYPE
-        return $"/*{preType}*/";
+        var tiValue = improvement?.Evaluate();
+        if (tiValue == TypeImprovementValue.Top) {
+          return $"/*{preType}*/";
+        } else {
+          return $"/*{tiValue.PrintString()}*/";
+        }
 #endif
       }
       return "";
@@ -1545,7 +1550,7 @@ namespace Microsoft.Dafny {
           }
           wr.Write(" {0}", local.DisplayName);
           PrintType(": ", local.OptionalType);
-          PrintPreType(local.PreType);
+          PrintPreType(local.PreType, local.TypeImprovement);
           sep = ",";
         }
         if (s.Update != null) {
@@ -2656,7 +2661,7 @@ namespace Microsoft.Dafny {
           wr.Write("{0}{1}", sep, bv.DisplayName);
           sep = ", ";
           PrintType(": ", bv.Type);
-          PrintPreType(bv.PreType);
+          PrintPreType(bv.PreType, bv.TypeImprovement);
         }
         PrintAttributes(e.Attributes);
         wr.Write(" | ");
@@ -2677,7 +2682,7 @@ namespace Microsoft.Dafny {
           wr.Write("{0}{1}", sep, bv.DisplayName);
           sep = ", ";
           PrintType(": ", bv.Type);
-          PrintPreType(bv.PreType);
+          PrintPreType(bv.PreType, bv.TypeImprovement);
         }
         PrintAttributes(e.Attributes);
         wr.Write(" | ");
@@ -2696,7 +2701,7 @@ namespace Microsoft.Dafny {
         if (parensNeeded) { wr.Write("("); }
         var skipSignatureParens = e.BoundVars.Count == 1 && !ShowType(e.BoundVars[0].Type);
         if (!skipSignatureParens) { wr.Write("("); }
-        wr.Write(Util.Comma(e.BoundVars, bv => bv.DisplayName + (ShowType(bv.Type) ? $": {bv.Type}{PreTypeString(bv.PreType)}" : "")));
+        wr.Write(Util.Comma(e.BoundVars, bv => bv.DisplayName + (ShowType(bv.Type) ? $": {bv.Type}{PreTypeString(bv.PreType, bv.TypeImprovement)}" : "")));
         if (!skipSignatureParens) { wr.Write(")"); }
         if (e.Range != null) {
           wr.Write(" requires ");
@@ -2844,7 +2849,7 @@ namespace Microsoft.Dafny {
         if (v.OptionalType is NonProxyType || DafnyOptions.O.DafnyPrintResolvedFile != null) {
           PrintType(": ", v.OptionalType);
         }
-        PrintPreType(v.PreType);
+        PrintPreType(v.PreType, v.TypeImprovement);
       } else {
         if (pat.Id.StartsWith(BuiltIns.TupleTypeCtorNamePrefix)) {
           Contract.Assert(pat.Arguments != null);
@@ -2909,7 +2914,7 @@ namespace Microsoft.Dafny {
       foreach (BoundVar bv in boundVars) {
         wr.Write("{0}{1}", sep, bv.DisplayName);
         PrintType(": ", bv.Type);
-        PrintPreType(bv.PreType);
+        PrintPreType(bv.PreType, bv.TypeImprovement);
         sep = ", ";
       }
       PrintAttributes(attrs);
