@@ -1,3 +1,4 @@
+#define DEBUG_IMPROVEMENT
 //-----------------------------------------------------------------------------
 //
 // Copyright by the contributors to the Dafny Project
@@ -74,7 +75,9 @@ namespace Microsoft.Dafny {
 
     public bool Update(TypeImprovementValue tiValue) {
       if (CurrentValue == Bottom || CurrentValue != tiValue) {
+#if DEBUG_IMPROVEMENT
         Console.WriteLine($"  --updating {Name} := {tiValue.PrintString()}");
+#endif
         CurrentValue = tiValue;
         return true; // value was updated
       }
@@ -326,10 +329,12 @@ namespace Microsoft.Dafny {
     private List<(TypeImprovementVariable, TypeImprovement)> constraints = new();
 
     public void PrintConstraints(string header) {
+#if DEBUG_IMPROVEMENT
       Console.WriteLine($"----------- {header} -------------");
       foreach (var (a, b) in constraints) {
         Console.WriteLine($"    {a.Name} <- {b}");
       }
+#endif
     }
 
     void AddConstraint(TypeImprovementVariable a, TypeImprovement b) {
