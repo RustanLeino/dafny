@@ -952,4 +952,7 @@ method DoesNotWork() {
 method Workaround() {
   var x: nat31 := 0 as int32;
 }
+
+// ------------------------
+// Also, see examples in https://github.com/dafny-lang/dafny/issues/1731
 ****************************************************************************************/
