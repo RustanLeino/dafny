@@ -1,3 +1,5 @@
+#define PRETYPE
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
@@ -18,7 +20,7 @@ public abstract class Expression : INode {
 
   [Pure]
   public bool WasResolved() {
-    return Type != null;
+    return PreType != null || Type != null;
   }
 
   public Expression Resolved {
@@ -40,6 +42,10 @@ public abstract class Expression : INode {
       }
     }
   }
+
+  [FilledInDuringResolution] public PreType PreType; // filled in during resolution
+
+  [FilledInDuringResolution] public TypeImprovement TypeImprovement;
 
   [FilledInDuringResolution] protected Type type;
   public Type Type {
@@ -1159,7 +1165,7 @@ public class AutoGhostIdentifierExpr : IdentifierExpr {
 /// <summary>
 /// This class is used only inside the resolver itself. It gets hung in the AST in uncompleted name segments.
 /// </summary>
-class Resolver_IdentifierExpr : Expression, IHasUsages {
+public class Resolver_IdentifierExpr : Expression, IHasUsages {
   public readonly TopLevelDecl Decl;
   public readonly List<Type> TypeArgs;
   [ContractInvariantMethod]
@@ -1206,6 +1212,9 @@ class Resolver_IdentifierExpr : Expression, IHasUsages {
     Decl = decl;
     TypeArgs = typeArgs;
     Type = decl is ModuleDecl ? (Type)new ResolverType_Module() : new ResolverType_Type();
+#if PRETYPE
+      PreType = decl is ModuleDecl ? new PreTypePlaceholderModule() : new PreTypePlaceholderType();
+#endif
   }
   public Resolver_IdentifierExpr(IToken tok, TypeParameter tp)
     : this(tok, tp, new List<Type>()) {
@@ -1294,12 +1303,14 @@ public class MemberSelectExpr : Expression, IHasUsages {
   /// declares Member (which is some supertype of the receiver type).
   /// </summary>
   [FilledInDuringResolution] public List<Type> TypeApplication_AtEnclosingClass;
+  [FilledInDuringResolution] public List<PreType> PreTypeApplication_AtEnclosingClass;
 
   /// <summary>
   ///  TypeApplication_JustMember is the list of type arguments used to instantiate the type parameters
   /// of Member.
   /// </summary>
   [FilledInDuringResolution] public List<Type> TypeApplication_JustMember;
+  [FilledInDuringResolution] public List<PreType> PreTypeApplication_JustMember;
 
   /// <summary>
   /// Returns a mapping from formal type parameters to actual type arguments. For example, given
@@ -1335,6 +1346,43 @@ public class MemberSelectExpr : Expression, IHasUsages {
       Contract.Assert(cl.TypeArgs.Count == TypeApplication_AtEnclosingClass.Count);
       for (var i = 0; i < cl.TypeArgs.Count; i++) {
         subst.Add(cl.TypeArgs[i], TypeApplication_AtEnclosingClass[i]);
+      }
+    }
+
+    return subst;
+  }
+
+  /// <summary>
+  /// Returns a mapping from formal type parameters to actual pre-type arguments. For example, given
+  ///     trait T<A> {
+  ///       function F<X>(): bv8 { ... }
+  ///     }
+  ///     class C<B, D> extends T<map<B, D>> { }
+  /// and MemberSelectExpr o.F<int> where o has type C<real, bool>, the type map returned is
+  ///     A -> map<real, bool>
+  ///     X -> int
+  /// To also include B and D in the mapping, use PreTypeArgumentSubstitutionsWithParents instead.
+  /// </summary>
+  public Dictionary<TypeParameter, PreType> PreTypeArgumentSubstitutionsAtMemberDeclaration() {
+    var subst = new Dictionary<TypeParameter, PreType>();
+
+    // Add the mappings from the member's own type parameters
+    if (Member is ICallable icallable) {
+      Contract.Assert(PreTypeApplication_JustMember.Count == icallable.TypeArgs.Count);
+      for (var i = 0; i < icallable.TypeArgs.Count; i++) {
+        subst.Add(icallable.TypeArgs[i], PreTypeApplication_JustMember[i]);
+      }
+    } else {
+      Contract.Assert(PreTypeApplication_JustMember.Count == 0);
+    }
+
+    // Add the mappings from the enclosing class.
+    TopLevelDecl cl = Member.EnclosingClass;
+    // Expand the type down to its non-null type, if any
+    if (cl != null) {
+      Contract.Assert(cl.TypeArgs.Count == PreTypeApplication_AtEnclosingClass.Count);
+      for (var i = 0; i < cl.TypeArgs.Count; i++) {
+        subst.Add(cl.TypeArgs[i], PreTypeApplication_AtEnclosingClass[i]);
       }
     }
 
@@ -1661,6 +1709,8 @@ public class FunctionCallExpr : Expression, IHasUsages {
   public List<Expression> Args => Bindings.Arguments;
   [FilledInDuringResolution] public List<Type> TypeApplication_AtEnclosingClass;
   [FilledInDuringResolution] public List<Type> TypeApplication_JustFunction;
+  [FilledInDuringResolution] public List<PreType> PreTypeApplication_AtEnclosingClass;
+  [FilledInDuringResolution] public List<PreType> PreTypeApplication_JustFunction;
   [FilledInDuringResolution] public bool IsByMethodCall;
 
   /// <summary>
@@ -1944,6 +1994,12 @@ public class UnaryOpExpr : UnaryExpr {
     }
 
     return _ResolvedOp;
+  }
+
+  public void SetResolveOp(ResolvedOpcode resolvedOpcode) {
+    Contract.Assert(resolvedOpcode != ResolvedOpcode.YetUndetermined);
+    Contract.Assert(_ResolvedOp == ResolvedOpcode.YetUndetermined || _ResolvedOp == resolvedOpcode);
+    _ResolvedOp = resolvedOpcode;
   }
 
   public UnaryOpExpr(IToken tok, Opcode op, Expression e)
@@ -3317,6 +3373,29 @@ public class CasePattern<VT> where VT : IVariable {
     }
   }
 
+  /// <summary>
+  /// Sets the Expr field.  Assumes the CasePattern and its arguments to have been successfully resolved, except for assigning
+  /// to Expr.
+  /// </summary>
+  public void AssembleExprPreType(List<PreType> dtvPreTypeArgs) {
+    Contract.Requires(Var != null || dtvPreTypeArgs != null);
+    if (Var != null) {
+      Contract.Assert(this.Id == this.Var.Name);
+      this.Expr = new IdentifierExpr(this.tok, this.Var);
+      this.Expr.PreType = this.Var.PreType;
+    } else {
+      var dtValue = new DatatypeValue(this.tok, this.Ctor.EnclosingDatatype.Name, this.Id,
+        this.Arguments == null ? new List<Expression>() : this.Arguments.ConvertAll(arg => arg.Expr));
+      dtValue.Ctor = this.Ctor;  // resolve here
+#if SOON
+        dtValue.InferredTypeArgs.AddRange(dtvTypeArgs);  // resolve here
+        dtValue.Type = new UserDefinedType(this.tok, this.Ctor.EnclosingDatatype.Name, this.Ctor.EnclosingDatatype, dtvTypeArgs);
+#endif
+      dtValue.PreType = new DPreType(this.Ctor.EnclosingDatatype, dtvPreTypeArgs);
+      this.Expr = dtValue;
+    }
+  }
+
   public IEnumerable<VT> Vars {
     get {
       if (Var != null) {
@@ -3547,6 +3626,13 @@ public abstract class ExtendedPattern : INode {
     this.IsGhost = isGhost;
   }
 
+
+  /// <summary>
+  /// Vars returns the variables declared in the pattern. It is intended to be called after resolution, since
+  /// it is resolution that determines if the ExtendedPattern stands for a variable or something else.
+  /// </summary>
+  public abstract IEnumerable<IVariable> Vars { get; }
+
   public abstract IEnumerable<INode> Children { get; }
 }
 
@@ -3555,6 +3641,12 @@ public class DisjunctivePattern : ExtendedPattern {
   public DisjunctivePattern(IToken tok, List<ExtendedPattern> alternatives, bool isGhost = false) : base(tok, isGhost) {
     Contract.Requires(alternatives != null && alternatives.Count > 0);
     this.Alternatives = alternatives;
+  }
+
+  public override IEnumerable<IVariable> Vars {
+    get {
+      yield break;
+    }
   }
 
   public override IEnumerable<INode> Children => Alternatives;
@@ -3616,6 +3708,12 @@ public class LitPattern : ExtendedPattern {
     return Printer.ExprToString(OrigLit);
   }
 
+  public override IEnumerable<IVariable> Vars {
+    get {
+      yield break;
+    }
+  }
+
   public override IEnumerable<INode> Children => new[] { OrigLit };
 }
 
@@ -3625,8 +3723,10 @@ public class IdPattern : ExtendedPattern, IHasUsages {
   public readonly Type Type; // This is the syntactic type, ExtendedPatterns dissapear during resolution.
   public List<ExtendedPattern> Arguments; // null if just an identifier; possibly empty argument list if a constructor call
   public LiteralExpr ResolvedLit; // null if just an identifier
+  public IVariable Var; // non-null if just an identifier
+  public DatatypeCtor Ctor; // null if just an identifier
   [FilledInDuringResolution]
-  public DatatypeCtor Ctor;
+  public PreType PreType;
 
   public bool IsWildcardPattern =>
     Arguments == null && Id.StartsWith("_");
@@ -3635,7 +3735,7 @@ public class IdPattern : ExtendedPattern, IHasUsages {
     this.Arguments = new List<ExtendedPattern>();
   }
 
-  public IdPattern(IToken tok, String id, List<ExtendedPattern> arguments, bool isGhost = false, bool hasParenthesis = false) : base(tok, isGhost) {
+  public IdPattern(IToken tok, string id, List<ExtendedPattern> arguments, bool isGhost = false, bool hasParenthesis = false) : base(tok, isGhost) {
     Contract.Requires(id != null);
     Contract.Requires(arguments != null); // Arguments can be empty, but shouldn't be null
     HasParenthesis = hasParenthesis;
@@ -3654,11 +3754,25 @@ public class IdPattern : ExtendedPattern, IHasUsages {
   }
 
   public override string ToString() {
-    if (Arguments == null || Arguments.Count == 0) {
+    if (Arguments == null) {
       return Id;
     } else {
-      List<string> cps = Arguments.ConvertAll<string>(x => x.ToString());
-      return string.Format("{0}({1})", Id, String.Join(", ", cps));
+      return string.Format("{0}({1})", Id, Util.Comma(Arguments, arg => arg.ToString()));
+    }
+  }
+
+  public override IEnumerable<IVariable> Vars {
+    get {
+      if (Var != null) {
+        yield return Var;
+      }
+      if (Arguments != null) {
+        foreach (var arg in Arguments) {
+          foreach (var v in arg.Vars) {
+            yield return v;
+          }
+        }
+      }
     }
   }
 
@@ -3912,7 +4026,37 @@ public class FrameExpression : IHasUsages {
 /// it gets "replaced" by the expression in "ResolvedExpression".
 /// </summary>
 public abstract class ConcreteSyntaxExpression : Expression {
+#if PRETYPE
+  private Expression ResolvedExpression_;
+  public Expression ResolvedExpression {  // filled in during resolution; after resolution, manipulation of "this" should proceed as with manipulating "this.ResolvedExpression"
+    get {
+      return ResolvedExpression_;
+    }
+    set {
+      if (ResolvedExpression_ != null) {
+        var preTypeResolvedExpression = ResolvedExpression_;
+        var newResolvedExpression = value;
+        newResolvedExpression.PreType = preTypeResolvedExpression.PreType;
+        if (preTypeResolvedExpression is MemberSelectExpr oldMse && newResolvedExpression is MemberSelectExpr newMse) {
+          Contract.Assert(oldMse.PreType != null);
+          Contract.Assert(oldMse.Obj.PreType != null);
+          if (newMse.Obj.PreType != null) {
+            Contract.Assert(PreType.Same(oldMse.Obj.PreType, newMse.Obj.PreType));
+          } else {
+            newMse.Obj.PreType = oldMse.Obj.PreType;
+          }
+        } else {
+          // we expect that either both are MemberSelectExpr's or neither is
+          Contract.Assert(preTypeResolvedExpression is not MemberSelectExpr);
+          Contract.Assert(newResolvedExpression is not MemberSelectExpr);
+        }
+      }
+      ResolvedExpression_ = value;
+    }
+  }
+#else
   [FilledInDuringResolution] public Expression ResolvedExpression;  // after resolution, manipulation of "this" should proceed as with manipulating "this.ResolvedExpression"
+#endif
   public ConcreteSyntaxExpression(IToken tok)
     : base(tok) {
   }
@@ -4086,6 +4230,31 @@ public class DefaultValueExpression : ConcreteSyntaxExpression {
     SubstMap = substMap;
     TypeMap = typeMap;
     Type = Resolver.SubstType(formal.Type, typeMap);
+  }
+}
+
+/// <summary>
+/// TODO: This class is a bit sketchy. It should probably be used to replace DefaultValueExpression in some way.
+/// </summary>
+public class DefaultValueExpressionPreType : ConcreteSyntaxExpression {
+  public readonly Formal Formal;
+  public readonly Expression Receiver;
+  public readonly Dictionary<IVariable, Expression> SubstMap;
+  public readonly Dictionary<TypeParameter, PreType> PreTypeMap;
+
+  public DefaultValueExpressionPreType(IToken tok, Formal formal,
+    Expression/*?*/ receiver, Dictionary<IVariable, Expression> substMap, Dictionary<TypeParameter, PreType> preTypeMap)
+    : base(tok) {
+    Contract.Requires(tok != null);
+    Contract.Requires(formal != null);
+    Contract.Requires(formal.DefaultValue != null);
+    Contract.Requires(substMap != null);
+    Contract.Requires(preTypeMap != null);
+    Formal = formal;
+    Receiver = receiver;
+    SubstMap = substMap;
+    PreTypeMap = preTypeMap;
+    PreType = formal.PreType.Substitute(preTypeMap);
   }
 }
 

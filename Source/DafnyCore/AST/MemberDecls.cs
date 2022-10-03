@@ -97,6 +97,9 @@ public class Field : MemberDecl {
   public readonly bool IsMutable;  // says whether or not the field can ever change values
   public readonly bool IsUserMutable;  // says whether or not code is allowed to assign to the field (IsUserMutable implies IsMutable)
   public readonly Type Type;
+  public PreType PreType;
+  public TypeImprovement TypeImprovement;
+
   [ContractInvariantMethod]
   void ObjectInvariant() {
     Contract.Invariant(Type != null);
@@ -339,6 +342,7 @@ public class Function : MemberDecl, TypeParameter.ParentType, ICallable {
   public readonly List<Formal> Formals;
   public readonly Formal Result;
   public readonly Type ResultType;
+  public PreType ResultPreType;
   public readonly List<AttributedExpression> Req;
   public readonly List<FrameExpression> Reads;
   public readonly List<AttributedExpression> Ens;

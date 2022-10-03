@@ -390,6 +390,15 @@ namespace Microsoft.Dafny {
     Type OptionalType {
       get;
     }
+    PreType PreType {
+      get;
+      set;
+    }
+
+    TypeImprovement TypeImprovement {
+      get;
+      set;
+    }
     bool IsMutable {
       get;
     }
@@ -447,6 +456,28 @@ namespace Microsoft.Dafny {
     public Type OptionalType {
       get {
         Contract.Ensures(Contract.Result<Type>() != null);
+        throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
+      }
+    }
+    public PreType/*?*/ PreType {
+      get {
+        // may return null before the value has been set
+        throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
+      }
+      set {
+        Contract.Requires(value != null);
+        Contract.Requires(PreType == null); // should be set just once
+        throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
+      }
+    }
+    public TypeImprovement/*?*/ TypeImprovement {
+      get {
+        // may return null before the value has been set
+        throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
+      }
+      set {
+        Contract.Requires(value != null);
+        Contract.Requires(TypeImprovement == null); // should be set just once
         throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
       }
     }
@@ -567,6 +598,11 @@ namespace Microsoft.Dafny {
     Type IVariable.OptionalType {
       get { return Type; }  // same as Type for NonglobalVariable
     }
+
+    public PreType PreType { get; set; }
+
+    public TypeImprovement TypeImprovement { get; set; }
+
     public abstract bool IsMutable {
       get;
     }
