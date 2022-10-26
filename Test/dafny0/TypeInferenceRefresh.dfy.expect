@@ -4,12 +4,12 @@ TypeInferenceRefresh.dfy(102,31): Warning: sanity check WARNING: no pre-type was
 TypeInferenceRefresh.dfy(107,31): Warning: sanity check WARNING: no pre-type was computed
 TypeInferenceRefresh.dfy(107,31): Warning: sanity check WARNING: no pre-type was computed
 TypeInferenceRefresh.dfy(107,31): Warning: sanity check WARNING: no pre-type was computed
-TypeInferenceRefresh.dfy(486,16): Warning: sanity check WARNING: no pre-type was computed
-TypeInferenceRefresh.dfy(487,14): Warning: sanity check WARNING: no pre-type was computed
-TypeInferenceRefresh.dfy(487,21): Warning: sanity check WARNING: no pre-type was computed
-TypeInferenceRefresh.dfy(487,21): Warning: sanity check WARNING: no pre-type was computed
-TypeInferenceRefresh.dfy(487,14): Warning: sanity check WARNING: no pre-type was computed
-TypeInferenceRefresh.dfy(485,4): Warning: sanity check WARNING: no pre-type was computed
+TypeInferenceRefresh.dfy(476,16): Warning: sanity check WARNING: no pre-type was computed
+TypeInferenceRefresh.dfy(477,14): Warning: sanity check WARNING: no pre-type was computed
+TypeInferenceRefresh.dfy(477,21): Warning: sanity check WARNING: no pre-type was computed
+TypeInferenceRefresh.dfy(477,21): Warning: sanity check WARNING: no pre-type was computed
+TypeInferenceRefresh.dfy(477,14): Warning: sanity check WARNING: no pre-type was computed
+TypeInferenceRefresh.dfy(475,4): Warning: sanity check WARNING: no pre-type was computed
 TypeInferenceRefresh.dfy(102,31): Error: value does not satisfy the subset constraints of 'SubsetType'
 TypeInferenceRefresh.dfy(107,31): Error: value does not satisfy the subset constraints of 'SubsetType'
 TypeInferenceRefresh.dfy(145,30): Error: element might not be in domain

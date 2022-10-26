@@ -435,16 +435,6 @@ lemma Calc(a: bool, b: bool, c: int, d: int, e: int)
   }
 }
 
-module ToBeRefined {
-  method M() {
-  }
-}
-module RefinementDoneHere refines ToBeRefined {
-  method M() {
-    ...;
-  }
-}
-
 class CellToModify {
   var data: int
 }
