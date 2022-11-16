@@ -45,7 +45,7 @@ public abstract class Expression : INode {
 
   [FilledInDuringResolution] public PreType PreType; // filled in during resolution
 
-  [FilledInDuringResolution] public TypeImprovement TypeImprovement;
+  [FilledInDuringResolution] public TypeImprovement<TopLevelDecl> TypeImprovement;
 
   [FilledInDuringResolution] protected Type type;
   public Type Type {

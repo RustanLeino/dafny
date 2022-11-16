@@ -395,7 +395,7 @@ namespace Microsoft.Dafny {
       set;
     }
 
-    TypeImprovement TypeImprovement {
+    TypeImprovement<TopLevelDecl> TypeImprovement {
       get;
       set;
     }
@@ -470,7 +470,7 @@ namespace Microsoft.Dafny {
         throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
       }
     }
-    public TypeImprovement/*?*/ TypeImprovement {
+    public TypeImprovement<TopLevelDecl>/*?*/ TypeImprovement {
       get {
         // may return null before the value has been set
         throw new NotImplementedException();  // this getter implementation is here only so that the Ensures contract can be given here
@@ -601,7 +601,7 @@ namespace Microsoft.Dafny {
 
     public PreType PreType { get; set; }
 
-    public TypeImprovement TypeImprovement { get; set; }
+    public TypeImprovement<TopLevelDecl> TypeImprovement { get; set; }
 
     public abstract bool IsMutable {
       get;

@@ -98,7 +98,7 @@ public class Field : MemberDecl {
   public readonly bool IsUserMutable;  // says whether or not code is allowed to assign to the field (IsUserMutable implies IsMutable)
   public readonly Type Type;
   public PreType PreType;
-  public TypeImprovement TypeImprovement;
+  public TypeImprovement<TopLevelDecl> TypeImprovement;
 
   [ContractInvariantMethod]
   void ObjectInvariant() {

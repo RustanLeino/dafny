@@ -1113,11 +1113,11 @@ namespace Microsoft.Dafny {
       }
     }
 
-    public void PrintPreType(PreType preType, TypeImprovement improvement) {
+    public void PrintPreType(PreType preType, TypeImprovement<TopLevelDecl> improvement) {
       wr.Write(PreTypeString(preType, improvement));
     }
 
-    public string PreTypeString(PreType preType, TypeImprovement improvement) {
+    public string PreTypeString<X>(PreType preType, TypeImprovement<X> improvement) {
       if (DafnyOptions.O.DafnyPrintResolvedFile != null) {
 #if PRETYPE
         var tiValue = improvement?.Evaluate();

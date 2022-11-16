@@ -91,7 +91,6 @@ namespace Microsoft.Dafny {
         decl = resolver.builtIns.arrayTypeDecls[dims];
       } else if (IsBitvectorName(name, out var width)) {
         var bvDecl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, t => t.IsBitVectorType, null);
-        var bvType = new BitvectorType(width);
         resolver.AddRotateMember(bvDecl, "RotateLeft", new SelfType());
         resolver.AddRotateMember(bvDecl, "RotateRight", new SelfType());
         decl = bvDecl;

@@ -1030,7 +1030,7 @@ public class LocalVariable : IVariable, IAttributeBearingDeclaration {
 
   public PreType PreType { get; set; }
 
-  public TypeImprovement TypeImprovement { get; set; }
+  public TypeImprovement<TopLevelDecl> TypeImprovement { get; set; }
 
   public bool IsMutable {
     get {

@@ -5,6 +5,7 @@
 //
 //-----------------------------------------------------------------------------
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -29,6 +30,10 @@ namespace Microsoft.Dafny {
       : base(resolver) {
     }
 
+    public override TypeImprovement<TopLevelDecl> TopFromPreType(PreType preType) {
+      return XFromUserProvidedType(Type.Int); // TODO: BOGUS: this should convert "preType" to a Type and then get the d-improvement from there
+    }
+
     [CanBeNull]
     public override TypeImprovementValue FromUserProvidedType(Type type) {
       type = type.NormalizeExpandKeepConstraints();
@@ -41,6 +46,13 @@ namespace Microsoft.Dafny {
       } else {
         return null;
       }
+    }
+
+    public override TypeImprovement<TopLevelDecl> XFromUserProvidedType(Type type) {
+      type = type.NormalizeExpandKeepConstraints();
+      var baseType = type.NormalizeExpand();
+      var args = type.TypeArgs.ConvertAll(XFromUserProvidedType);
+      return new DTypeImprovement<TopLevelDecl>(TopLevelDeclFromType(baseType), TopLevelDeclFromType(type), args);
     }
 
     [CanBeNull]

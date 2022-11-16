@@ -24,10 +24,14 @@ namespace Microsoft.Dafny {
     [CanBeNull] public readonly List<TypeImprovementValue> Arguments; // null is a synonymous with .Count == 0 (which is a common case)
 
     public string ArgumentsToString() {
-      if (Arguments == null) {
+      return ArgumentsToString(Arguments);
+    }
+
+    public static string ArgumentsToString([CanBeNull] List<TypeImprovementValue> arguments) {
+      if (arguments == null) {
         return "";
       } else {
-        return $"<{Arguments.Comma(arg => arg.PrintString())}>";
+        return $"<{arguments.Comma(arg => arg.PrintString())}>";
       }
     }
 
@@ -42,23 +46,30 @@ namespace Microsoft.Dafny {
     }
   }
 
-  public abstract record TypeImprovement {
-    public static readonly TypeImprovement Top = new TypeImprovementConstant(TypeImprovementValue.Top);
+  public abstract record TypeImprovement<X> {
+    public static readonly TypeImprovement<X> Top = new TypeImprovementConstant<X>(TypeImprovementValue.Top);
 
     [CanBeNull]
     public abstract TypeImprovementValue Evaluate();
   }
 
+  public record DTypeImprovement<X>(TopLevelDecl Decl, X improvement, List<TypeImprovement<X>> Arguments) : TypeImprovement<X> {
+    [CanBeNull]
+    public override TypeImprovementValue Evaluate() {
+      throw new NotImplementedException(); // TODO: what goes here?
+    }
+  }
+
   /// <summary>
   /// A "Value" of "null" indicates the constant \top.
   /// </summary>
-  public record TypeImprovementConstant([CanBeNull] TypeImprovementValue Value) : TypeImprovement {
+  public record TypeImprovementConstant<X>([CanBeNull] TypeImprovementValue Value) : TypeImprovement<X> {
     public override string ToString() => $"Const({Value.PrintString()})";
 
     public override TypeImprovementValue Evaluate() => Value;
   }
 
-  public record TypeImprovementVariable(string Name) : TypeImprovement {
+  public record TypeImprovementVariable<X>(string Name) : TypeImprovement<X> {
     /// <summary>
     /// "CurrentValue == Bottom" indicates \bottom.
     /// "CurrentValue == TypeImprovement.Top" indicates \top.
@@ -92,7 +103,60 @@ namespace Microsoft.Dafny {
     public override TypeImprovementValue Evaluate() => CurrentValue;
   }
 
-  public abstract class TypeImprover : ResolverPass {
+  public abstract class TypeImproverBase<X> : ResolverPass {
+    public TypeImproverBase(Resolver resolver)
+      : base(resolver) {
+    }
+
+    public abstract TypeImprovement<X> TopFromPreType(PreType preType);
+
+    private List<(TypeImprovementVariable<X>, TypeImprovement<X>)> constraints = new();
+
+    public void PrintConstraints(string header) {
+#if DEBUG_IMPROVEMENT
+      Console.WriteLine($"----------- {header} -------------");
+      foreach (var (a, b) in constraints) {
+        Console.WriteLine($"    {a.Name} <- {b}");
+      }
+#endif
+    }
+
+    protected void AddConstraint(TypeImprovementVariable<X> a, TypeImprovement<X> b) {
+      constraints.Add((a, b));
+    }
+
+    public void SolveConstraints() {
+      bool anyChange;
+
+      do {
+        anyChange = false;
+        foreach (var (a, b) in constraints) {
+          if (a is TypeImprovementVariable<X> tiVar) {
+            var bValue = b.Evaluate();
+            if (tiVar.IsBottom || bValue == TypeImprovementValue.Top) {
+              anyChange = tiVar.Update(bValue) || anyChange;
+            } else if (tiVar.CurrentValue == TypeImprovementValue.Top) {
+            } else {
+              anyChange = tiVar.Update(Join(tiVar.CurrentValue, bValue)) || anyChange;
+            }
+          }
+        }
+      } while (anyChange);
+    }
+
+    [CanBeNull] public abstract TypeImprovementValue Join(TypeImprovementValue a, TypeImprovementValue b);
+
+    protected List<TypeImprovement<X>> GetBaseTypeArgumentImprovements(Expression e) {
+      var ti = e.TypeImprovement;
+      if (ti is TypeImprovementConstant<X> tiConst) {
+        var value = tiConst.Evaluate();
+//        return value.Arguments
+      }
+      return new List<TypeImprovement<X>>(); // TODO: this is bogus
+    }
+  }
+
+  public abstract class TypeImprover : TypeImproverBase<TopLevelDecl> {
     public TypeImprover(Resolver resolver)
       : base(resolver) {
     }
@@ -196,25 +260,33 @@ namespace Microsoft.Dafny {
       cl.Members.Iter(ImproveMember);
     }
 
+    private TypeImprovement<TopLevelDecl> YFromUserProvidedType(Type type) {
+      var x = XFromUserProvidedType(type);
+      return (TypeImprovement<TopLevelDecl>)(object)x;
+    }
+
     void ImproveMember(MemberDecl member) {
       if (member is ConstantField cfield && cfield.Rhs != null) {
         VisitExpression(cfield.Rhs);
-        var tiVar = new TypeImprovementVariable(cfield.Name);
-        cfield.TypeImprovement = tiVar;
-        AddConstraint(tiVar, cfield.Rhs.TypeImprovement);
+        if (cfield.Type is TypeProxy) {
+          // TODO: does this need to introduce a variable and record a constraint in order to get type dependencies to be computed in the right order?
+          cfield.TypeImprovement = cfield.Rhs.TypeImprovement;
+        } else {
+          cfield.TypeImprovement = YFromUserProvidedType(cfield.Type);
+        }
 
       } else if (member is Field field) {
-        field.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(field.Type));
+        field.TypeImprovement = YFromUserProvidedType(field.Type);
 
       } else if (member is Method method) {
         foreach (var formal in method.Ins) {
-          formal.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
+          formal.TypeImprovement = YFromUserProvidedType(formal.Type);
           if (formal.DefaultValue != null) {
             VisitExpression(formal.DefaultValue);
           }
         }
         foreach (var formal in method.Outs) {
-          formal.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
+          formal.TypeImprovement = YFromUserProvidedType(formal.Type);
         }
         method.Req.Iter(VisitAttributedExpression);
         VisitSpecFrameExpression(method.Mod);
@@ -227,7 +299,7 @@ namespace Microsoft.Dafny {
       } else if (member is Function) {
         var f = (Function)member;
         foreach (var formal in f.Formals) {
-          formal.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
+          formal.TypeImprovement = YFromUserProvidedType(formal.Type);
           if (formal.DefaultValue != null) {
             VisitExpression(formal.DefaultValue);
           }
@@ -252,7 +324,8 @@ namespace Microsoft.Dafny {
 
     [CanBeNull] public abstract TypeImprovementValue FromUserProvidedType(Type type);
 
-    [CanBeNull] public abstract TypeImprovementValue Join(TypeImprovementValue a, TypeImprovementValue b);
+    public abstract TypeImprovement<TopLevelDecl> XFromUserProvidedType(Type type);
+
 
     void VisitAttributes(Attributes attrs) {
       for (; attrs != null; attrs = attrs.Prev) {
@@ -286,8 +359,16 @@ namespace Microsoft.Dafny {
           expr.TypeImprovement = local.TypeImprovement;
           return;
         } else if (idExpr.Var is Formal formal) {
-          expr.TypeImprovement = new TypeImprovementConstant(FromUserProvidedType(formal.Type));
+          expr.TypeImprovement = YFromUserProvidedType(formal.Type);
           return;
+        }
+      } else if (expr is BinaryExpr binaryExpr) {
+        if (binaryExpr.ResolvedOp == BinaryExpr.ResolvedOpcode.Concat) {
+          var tiv = new TypeImprovementVariable<TopLevelDecl>("concat");
+          var seq = BuiltInTypeDecl("seq");
+          expr.TypeImprovement = new DTypeImprovement<TopLevelDecl>(seq, seq, new List<TypeImprovement<TopLevelDecl>>() { tiv });
+          AddConstraint(tiv, GetBaseTypeArgumentImprovements(binaryExpr.E0)[0]);
+          AddConstraint(tiv, GetBaseTypeArgumentImprovements(binaryExpr.E1)[0]);
         }
       } else if (expr is ConcreteSyntaxExpression concreteSyntaxExpression) {
         concreteSyntaxExpression.TypeImprovement = concreteSyntaxExpression.ResolvedExpression.TypeImprovement;
@@ -295,7 +376,57 @@ namespace Microsoft.Dafny {
       }
 
       // If nothing else, use \top.
-      expr.TypeImprovement = TypeImprovement.Top;
+      expr.TypeImprovement = TopFromPreType(expr.PreType);
+    }
+
+    private readonly Dictionary<string, TopLevelDecl> typeImprovementBuiltins = new();
+
+    TopLevelDecl BuiltInTypeDecl(string name) {
+      Contract.Requires(name != null);
+      if (typeImprovementBuiltins.TryGetValue(name, out var decl)) {
+        return decl;
+      }
+      if (PreTypeResolver.IsArrayName(name, out var dims)) {
+        decl = resolver.builtIns.arrayTypeDecls[dims];
+      } else if (PreTypeResolver.IsBitvectorName(name, out var width)) {
+        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, t => t.IsBitVectorType, null);
+      } else {
+        foreach (var valueTypeDecl in resolver.valuetypeDecls) {
+          if (valueTypeDecl.Name == name) {
+            // bool, int, real, ORDINAL, map, imap
+            decl = valueTypeDecl;
+            break;
+          }
+        }
+        if (decl == null) {
+          if (name == "set" || name == "seq" || name == "multiset") {
+            var variances = new List<TypeParameter.TPVarianceSyntax>() { TypeParameter.TPVarianceSyntax.Covariant_Strict };
+            decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false, null);
+          } else if (name == "iset") {
+            var variances = new List<TypeParameter.TPVarianceSyntax>() { TypeParameter.TPVarianceSyntax.Covariant_Permissive };
+            decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false, null);
+          } else {
+            decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, _ => false, null);
+          }
+        }
+      }
+      typeImprovementBuiltins.Add(name, decl);
+      return decl;
+    }
+
+    protected TopLevelDecl TopLevelDeclFromType(Type type) {
+      type = type.NormalizeExpandKeepConstraints();
+      if (type is IntType) {
+        return BuiltInTypeDecl("int");
+      } else if (type is BoolType) {
+        return BuiltInTypeDecl("bool");
+      } else if (type is SeqType) {
+        return BuiltInTypeDecl("seq");
+      } else {
+        // TODO: there are more cases to consider above
+        var udt = (UserDefinedType)type;
+        return udt.ResolvedClass;
+      }
     }
 
     void VisitStatement(Statement stmt) {
@@ -308,13 +439,13 @@ namespace Microsoft.Dafny {
           Contract.Assert(local.TypeImprovement == null);
           var declaredImprovement = FromUserProvidedType(local.OptionalType);
           if (declaredImprovement != null) {
-            local.TypeImprovement = new TypeImprovementConstant(declaredImprovement);
+            local.TypeImprovement = new TypeImprovementConstant<TopLevelDecl>(declaredImprovement);
           } else {
-            local.TypeImprovement = new TypeImprovementVariable(local.Name);
+            local.TypeImprovement = new TypeImprovementVariable<TopLevelDecl>(local.Name);
           }
         }
       } else if (stmt is AssignStmt assignStmt) {
-        if (assignStmt.Lhs is IdentifierExpr idExpr && idExpr.Var is IVariable local && local.TypeImprovement is TypeImprovementVariable tiVar) {
+        if (assignStmt.Lhs is IdentifierExpr idExpr && idExpr.Var is IVariable local && local.TypeImprovement is TypeImprovementVariable<TopLevelDecl> tiVar) {
           if (assignStmt.Rhs is ExprRhs exprRhs) {
             AddConstraint(tiVar, exprRhs.Expr.TypeImprovement);
           }
@@ -326,38 +457,5 @@ namespace Microsoft.Dafny {
       }
     }
 
-    private List<(TypeImprovementVariable, TypeImprovement)> constraints = new();
-
-    public void PrintConstraints(string header) {
-#if DEBUG_IMPROVEMENT
-      Console.WriteLine($"----------- {header} -------------");
-      foreach (var (a, b) in constraints) {
-        Console.WriteLine($"    {a.Name} <- {b}");
-      }
-#endif
-    }
-
-    void AddConstraint(TypeImprovementVariable a, TypeImprovement b) {
-      constraints.Add((a, b));
-    }
-
-    public void SolveConstraints() {
-      bool anyChange;
-
-      do {
-        anyChange = false;
-        foreach (var (a, b) in constraints) {
-          if (a is TypeImprovementVariable tiVar) {
-            var bValue = b.Evaluate();
-            if (tiVar.IsBottom || bValue == TypeImprovementValue.Top) {
-              anyChange = tiVar.Update(bValue) || anyChange;
-            } else if (tiVar.CurrentValue == TypeImprovementValue.Top) {
-            } else {
-              anyChange = tiVar.Update(Join(tiVar.CurrentValue, bValue)) || anyChange;
-            }
-          }
-        }
-      } while (anyChange);
-    }
   }
 }
