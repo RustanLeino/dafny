@@ -647,7 +647,7 @@ namespace Microsoft.Dafny {
           ResolveAssignmentRhs(rhs, updateStatement, resolutionContext);
         }
       } else if (update is AssignOrReturnStmt elephantStmt) {
-        ResolveExpression(elephantStmt.Rhs, resolutionContext);
+        ResolveExpression(elephantStmt.Rhs.Expr, resolutionContext);
         if (elephantStmt.Rhss != null) {
           foreach (var rhs in elephantStmt.Rhss) {
             ResolveAssignmentRhs(rhs, elephantStmt, resolutionContext);
