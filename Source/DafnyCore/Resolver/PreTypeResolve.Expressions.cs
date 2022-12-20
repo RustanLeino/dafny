@@ -11,7 +11,7 @@ using System.Linq;
 using System.Numerics;
 using System.Diagnostics.Contracts;
 using Microsoft.Boogie;
-using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
+using ResolutionContext = Microsoft.Dafny.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
@@ -49,7 +49,7 @@ namespace Microsoft.Dafny {
         var e = (LiteralExpr)expr;
 
         if (e is StaticReceiverExpr eStatic) {
-          resolver.ResolveType(eStatic.tok, eStatic.UnresolvedType, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(eStatic.tok, eStatic.UnresolvedType, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           eStatic.PreType = Type2PreType(eStatic.UnresolvedType, "static receiver type");
         } else {
           if (e.Value == null) {
@@ -366,7 +366,7 @@ namespace Microsoft.Dafny {
       } else if (expr is SeqConstructionExpr) {
         var e = (SeqConstructionExpr)expr;
         var elementType = e.ExplicitElementType ?? new InferredTypeProxy();
-        resolver.ResolveType(e.tok, elementType, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        resolver.ResolveType(e.tok, elementType, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
         var elementPreType = Type2PreType(elementType);
         ResolveExpression(e.N, resolutionContext);
         ConstrainToIntFamily(e.N.PreType, e.N.tok, "sequence construction must use an integer-based expression for the sequence size (got {0})");
@@ -456,7 +456,7 @@ namespace Microsoft.Dafny {
         var e = (ConversionExpr)expr;
         ResolveExpression(e.E, resolutionContext);
         var prevErrorCount = ErrorCount;
-        resolver.ResolveType(e.tok, e.ToType, resolutionContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null);
+        resolver.ResolveType(e.tok, e.ToType, resolutionContext, new Resolver.ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
         if (ErrorCount == prevErrorCount) {
           var toPreType = (DPreType)Type2PreType(e.ToType);
           var ancestorDecl = AncestorDecl(toPreType.Decl);
@@ -485,7 +485,7 @@ namespace Microsoft.Dafny {
         var e = (TypeTestExpr)expr;
         ResolveExpression(e.E, resolutionContext);
         expr.PreType = ConstrainResultToBoolFamilyOperator(expr.tok, "is");
-        resolver.ResolveType(e.tok, e.ToType, resolutionContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null);
+        resolver.ResolveType(e.tok, e.ToType, resolutionContext, new Resolver.ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null);
         var toPreType = Type2PreType(e.ToType);
         AddComparableConstraint(toPreType, e.E.PreType, expr.tok, "type test for type '{0}' must be from an expression assignable to it (got '{1}')");
         AddConfirmation(() => {
@@ -531,7 +531,7 @@ namespace Microsoft.Dafny {
         if (e.Exact) {
           foreach (var bv in e.BoundVars) {
             int prevErrorCount = ErrorCount;
-            resolver.ResolveType(bv.Tok, bv.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+            resolver.ResolveType(bv.Tok, bv.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
             bv.PreType = Type2PreType(bv.Type);
           }
           foreach (var rhs in e.RHSs) {
@@ -567,7 +567,7 @@ namespace Microsoft.Dafny {
           foreach (var lhs in e.LHSs) {
             Contract.Assert(lhs.Var != null);  // the parser already checked that every LHS is a BoundVar, not a general pattern
             var v = lhs.Var;
-            resolver.ResolveType(v.tok, v.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+            resolver.ResolveType(v.tok, v.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
             ScopePushAndReport(v, "let-variable", true);
 #if SOON
             resolver.AddTypeDependencyEdges(resolutionContext, v.Type);
@@ -604,7 +604,7 @@ namespace Microsoft.Dafny {
         Contract.Assert(e.SplitQuantifier == null); // No split quantifiers during resolution
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
-          resolver.ResolveType(v.tok, v.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           ScopePushAndReport(v, "bound-variable", true);
         }
         if (e.Range != null) {
@@ -623,7 +623,7 @@ namespace Microsoft.Dafny {
         var e = (SetComprehension)expr;
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
-          resolver.ResolveType(v.tok, v.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           ScopePushAndReport(v, "bound-variable", true);
         }
         ResolveExpression(e.Range, resolutionContext);
@@ -639,7 +639,7 @@ namespace Microsoft.Dafny {
         scope.PushMarker();
         Contract.Assert(e.BoundVars.Count == 1 || (1 < e.BoundVars.Count && e.TermLeft != null));
         foreach (BoundVar v in e.BoundVars) {
-          resolver.ResolveType(v.tok, v.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           ScopePushAndReport(v, "bound-variable", true);
           if (v.Type is InferredTypeProxy inferredProxy) {
             Contract.Assert(!inferredProxy.KeepConstraints);  // in general, this proxy is inferred to be a base type
@@ -661,7 +661,7 @@ namespace Microsoft.Dafny {
         var e = (LambdaExpr)expr;
         scope.PushMarker();
         foreach (var v in e.BoundVars) {
-          resolver.ResolveType(v.tok, v.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           ScopePushAndReport(v, "bound-variable", true);
         }
 
@@ -1114,7 +1114,7 @@ namespace Microsoft.Dafny {
 
       if (expr.OptTypeArguments != null) {
         foreach (var ty in expr.OptTypeArguments) {
-          resolver.ResolveType(expr.tok, ty, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(expr.tok, ty, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
         }
       }
 
@@ -1346,7 +1346,7 @@ namespace Microsoft.Dafny {
 
       if (expr.OptTypeArguments != null) {
         foreach (var ty in expr.OptTypeArguments) {
-          resolver.ResolveType(expr.tok, ty, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(expr.tok, ty, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
         }
       }
 

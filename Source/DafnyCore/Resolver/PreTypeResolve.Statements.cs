@@ -14,7 +14,7 @@ using System.Diagnostics.Contracts;
 using System.Runtime.Intrinsics.X86;
 using Microsoft.Boogie;
 using Bpl = Microsoft.Boogie;
-using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
+using ResolutionContext = Microsoft.Dafny.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
@@ -189,17 +189,17 @@ namespace Microsoft.Dafny {
           ReportError(stmt, "return statement is not allowed before 'new;' in a constructor");
         }
         var s = (ProduceStmt)stmt;
-        if (s.rhss == null) {
+        if (s.Rhss == null) {
           // this is a regular return/yield statement.
-          s.hiddenUpdate = null;
+          s.HiddenUpdate = null;
         } else {
           var cmc = resolutionContext as IMethodCodeContext;
           if (cmc == null) {
             // an error has already been reported above
-          } else if (cmc.Outs.Count != s.rhss.Count) {
-            ReportError(s, "number of {2} parameters does not match declaration (found {0}, expected {1})", s.rhss.Count, cmc.Outs.Count, kind);
+          } else if (cmc.Outs.Count != s.Rhss.Count) {
+            ReportError(s, "number of {2} parameters does not match declaration (found {0}, expected {1})", s.Rhss.Count, cmc.Outs.Count, kind);
           } else {
-            Contract.Assert(s.rhss.Count > 0);
+            Contract.Assert(s.Rhss.Count > 0);
             // Create a hidden update statement using the out-parameter formals, resolve the RHS, and check that the RHS is good.
             List<Expression> formals = new List<Expression>();
             foreach (Formal f in cmc.Outs) {
@@ -218,9 +218,9 @@ namespace Microsoft.Dafny {
               }
               formals.Add(produceLhs);
             }
-            s.hiddenUpdate = new UpdateStmt(s.Tok, s.EndTok, formals, s.rhss, true);
+            s.HiddenUpdate = new UpdateStmt(s.Tok, s.EndTok, formals, s.Rhss, true);
             // resolving the update statement will check for return/yield statement specifics.
-            ResolveStatement(s.hiddenUpdate, resolutionContext);
+            ResolveStatement(s.HiddenUpdate, resolutionContext);
           }
         }
 
@@ -234,7 +234,7 @@ namespace Microsoft.Dafny {
         var s = (VarDeclPattern)stmt;
         foreach (var local in s.LocalVars) {
           int prevErrorCount = ErrorCount;
-          resolver.ResolveType(local.Tok, local.OptionalType, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(local.Tok, local.OptionalType, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           local.type = ErrorCount == prevErrorCount ? local.type = local.OptionalType : new InferredTypeProxy();
           local.PreType = Type2PreType(local.type);
         }
@@ -357,7 +357,7 @@ namespace Microsoft.Dafny {
         int prevErrorCount = ErrorCount;
         scope.PushMarker();
         foreach (BoundVar v in s.BoundVars) {
-          resolver.ResolveType(v.tok, v.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(v.tok, v.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           ScopePushAndReport(v, "local-variable");
         }
         ResolveExpression(s.Range, resolutionContext);
@@ -490,7 +490,7 @@ namespace Microsoft.Dafny {
 
       } else if (s is ForLoopStmt forS) {
         var loopIndex = forS.LoopIndex;
-        resolver.ResolveType(loopIndex.tok, loopIndex.Type, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        resolver.ResolveType(loopIndex.tok, loopIndex.Type, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
         loopIndex.PreType = Type2PreType(loopIndex.Type);
         AddConfirmation("InIntFamily", loopIndex.PreType, loopIndex.tok, "index variable is expected to be of an integer type (got {0})");
         fvs.Add(loopIndex);
@@ -659,7 +659,7 @@ namespace Microsoft.Dafny {
         // Add the locals to the scope
         foreach (var local in locals) {
           int prevErrorCount = ErrorCount;
-          resolver.ResolveType(local.Tok, local.OptionalType, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(local.Tok, local.OptionalType, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           local.type = ErrorCount == prevErrorCount ? local.OptionalType : new InferredTypeProxy();
           ScopePushAndReport(local, "local-variable", true);
         }
@@ -1217,7 +1217,7 @@ namespace Microsoft.Dafny {
         // ---------- new T[EE]    OR    new T[EE] (elementInit)
         var dims = rr.ArrayDimensions.Count;
         Contract.Assert(rr.Bindings == null && rr.Path == null && rr.InitCall == null);
-        resolver.ResolveType(stmt.Tok, rr.EType, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+        resolver.ResolveType(stmt.Tok, rr.EType, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
         int i = 0;
         foreach (var dim in rr.ArrayDimensions) {
           ResolveExpression(dim, resolutionContext);
@@ -1249,7 +1249,7 @@ namespace Microsoft.Dafny {
       } else {
         bool callsConstructor = false;
         if (rr.Bindings == null) {
-          resolver.ResolveType(stmt.Tok, rr.EType, resolutionContext, Resolver.ResolveTypeOptionEnum.InferTypeProxies, null);
+          resolver.ResolveType(stmt.Tok, rr.EType, resolutionContext, ResolveTypeOptionEnum.InferTypeProxies, null);
           var cl = (rr.EType as UserDefinedType)?.ResolvedClass as NonNullTypeDecl;
           if (cl != null && !(rr.EType.IsTraitType && !rr.EType.NormalizeExpand().IsObjectQ)) {
             // life is good
@@ -1264,7 +1264,7 @@ namespace Microsoft.Dafny {
           // * If rr.Path denotes a type, then set EType,initCallName to rr.Path,"_ctor", which sets up a call to the anonymous constructor.
           // * If the all-but-last components of rr.Path denote a type, then do EType,initCallName := allButLast(EType),last(EType)
           // * Otherwise, report an error
-          var ret = ResolveTypeLenient(rr.Tok, rr.Path, resolutionContext, new Resolver.ResolveTypeOption(Resolver.ResolveTypeOptionEnum.InferTypeProxies), null, true);
+          var ret = ResolveTypeLenient(rr.Tok, rr.Path, resolutionContext, new Resolver.ResolveTypeOption(ResolveTypeOptionEnum.InferTypeProxies), null, true);
           if (ret != null) {
             // The all-but-last components of rr.Path denote a type (namely, ret.ReplacementType).
             rr.EType = ret.ReplacementType;

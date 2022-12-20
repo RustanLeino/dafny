@@ -7,15 +7,13 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Numerics;
 using System.Diagnostics.Contracts;
-using System.Runtime.Intrinsics.X86;
 using JetBrains.Annotations;
 using Microsoft.Boogie;
 using Bpl = Microsoft.Boogie;
-using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
+using ResolutionContext = Microsoft.Dafny.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public abstract class ResolverPass {

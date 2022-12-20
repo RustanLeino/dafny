@@ -8,7 +8,7 @@
 using System;
 using System.Diagnostics.Contracts;
 using Microsoft.Boogie;
-using ResolutionContext = Microsoft.Dafny.Resolver.ResolutionContext;
+using ResolutionContext = Microsoft.Dafny.ResolutionContext;
 
 namespace Microsoft.Dafny {
   public partial class PreTypeResolver {
