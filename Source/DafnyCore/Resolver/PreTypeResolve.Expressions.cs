@@ -1836,7 +1836,7 @@ namespace Microsoft.Dafny {
     /// Resolves the case pattern "pat", figuring out if it denotes a variable or a constructor (or is in error).
     /// The caller is expected to have filled in the .type and .PreType fields of any variable occurring in "pat".
     /// </summary>
-    void ResolveCasePattern<VT>(CasePattern<VT> pat, PreType sourcePreType, ResolutionContext resolutionContext) where VT : IVariable {
+    void ResolveCasePattern<VT>(CasePattern<VT> pat, PreType sourcePreType, ResolutionContext resolutionContext) where VT : class, IVariable {
       Contract.Requires(pat != null);
       Contract.Requires(sourcePreType != null);
       Contract.Requires(resolutionContext != null);

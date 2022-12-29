@@ -2858,8 +2858,8 @@ public abstract class ConcreteSyntaxExpression : Expression {
     get => resolvedExpression;
     set {
 #if PRETYPE
-      if (ResolvedExpression_ != null) {
-        var preTypeResolvedExpression = ResolvedExpression_;
+      if (resolvedExpression != null) {
+        var preTypeResolvedExpression = resolvedExpression;
         var newResolvedExpression = value;
         newResolvedExpression.PreType = preTypeResolvedExpression.PreType;
         if (preTypeResolvedExpression is MemberSelectExpr oldMse && newResolvedExpression is MemberSelectExpr newMse) {
@@ -2876,7 +2876,6 @@ public abstract class ConcreteSyntaxExpression : Expression {
           Contract.Assert(newResolvedExpression is not MemberSelectExpr);
         }
       }
-      ResolvedExpression_ = value;
 #endif
       resolvedExpression = value;
       if (rangeToken != null && resolvedExpression != null) {
