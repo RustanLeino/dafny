@@ -716,6 +716,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(resolutionContext != null);
       IToken firstEffectfulRhs = null;
       Resolver.MethodCallInformation methodCallInfo = null;
+      update.ResolvedStatements = new();
       foreach (var rhs in update.Rhss) {
         bool isEffectful;
         if (rhs is TypeRhs tr) {

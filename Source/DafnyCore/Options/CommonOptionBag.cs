@@ -111,6 +111,11 @@ Note that the C++ backend has various limitations (see Docs/Compilation/Cpp.md).
 false - The char type represents any UTF-16 code unit.
 true - The char type represents any Unicode scalar value.".TrimStart());
 
+  public static readonly Option<bool> NewTypeInference = new("--new-type-inference", () => false,
+    @"
+false - Use the legacy name resolution and type inference.
+true - Use the refreshed name resolution and type inference. Warning: This mode is still in beta and won't work with some constructs in the input.".TrimStart());
+
   public static readonly Option<FileInfo> SolverPath = new("--solver-path",
     "Can be used to specify a custom SMT solver to use for verifying Dafny proofs.");
   public static readonly Option<bool> VerifyIncludedFiles = new("--verify-included-files",

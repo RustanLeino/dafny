@@ -63,6 +63,9 @@ features like traits or co-inductive types.".TrimStart(), "cs");
       RegisterLegacyUi(CommonOptionBag.UnicodeCharacters, ParseBoolean, "Language feature selection", "unicodeChar", @"
 0 (default) - The char type represents any UTF-16 code unit.
 1 - The char type represents any Unicode scalar value.".TrimStart());
+      RegisterLegacyUi(CommonOptionBag.NewTypeInference, ParseBoolean, "Resolution options", "newTypeInference", @"
+0 (default) - Use the legacy name resolution and type inference.
+1 - Use the refreshed name resolution and type inference. Warning: This mode is still in beta and won't work with some constructs in the input.".TrimStart());
       RegisterLegacyUi(CommonOptionBag.Plugin, ParseStringElement, "Plugins", defaultValue: new List<string>());
       RegisterLegacyUi(CommonOptionBag.Prelude, ParseFileInfo, "Input configuration", "dprelude");
 

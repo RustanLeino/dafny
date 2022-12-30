@@ -59,6 +59,7 @@ public interface ICommandSpec {
     CommonOptionBag.WarnMissingConstructorParenthesis,
     PrintStmt.TrackPrintEffectsOption,
     CommonOptionBag.UnicodeCharacters,
+    CommonOptionBag.NewTypeInference,
   });
 
   IEnumerable<Option> Options { get; }

@@ -235,18 +235,11 @@ namespace Microsoft.Dafny {
     private List<IRewriter> rewriters;
     private RefinementTransformer refinementTransformer;
 
-#if PRETYPE
-    readonly PreTypeResolver preTypeResolver;
-#endif
-
     public Resolver(Program prog) {
       Contract.Requires(prog != null);
 
       builtIns = prog.BuiltIns;
       reporter = prog.Reporter;
-#if PRETYPE
-      preTypeResolver = new PreTypeResolver(this);
-#endif
 
       // Map#Items relies on the two destructors for 2-tuples
       builtIns.TupleType(Token.NoToken, 2, true);
@@ -2683,22 +2676,6 @@ namespace Microsoft.Dafny {
 
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
 
-#if PRETYPE
-      preTypeResolver.ResolveDeclarations(declarations, moduleName);
-      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        var u = new CheckUnderspecification(this);
-        u.Check(declarations);
-      }
-      if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        var u = new SubsetTypeImprover(this);
-        u.Improve(declarations);
-        u.PrintConstraints($"pre-solution (module {moduleName})");
-        u.SolveConstraints();
-        u.PrintConstraints($"post-solution (module {moduleName})");
-      }
-#endif
-      prevErrorCount = reporter.Count(ErrorLevel.Error);
-
       // ---------------------------------- Pass 0 ----------------------------------
       // This pass:
       // * resolves names, introduces (and may solve) type constraints
@@ -2709,13 +2686,37 @@ namespace Microsoft.Dafny {
 
       // Resolve all names and infer types. These two are done together, because name resolution depends on having type information
       // and type inference depends on having resolved names.
-      // The task is first performed for (the constraints of) newtype declarations, (the constraints of) subset type declarations, and
-      // (the right-hand sides of) const declarations, because type resolution sometimes needs to know the base type of newtypes and subset types
-      // and needs to know the type of const fields. Doing these declarations increases the chances the right information will be provided
-      // in time.
-      // Once the task is done for these newtype/subset-type/const parts, the task continues with everything else.
-      ResolveNamesAndInferTypes(declarations, true);
-      ResolveNamesAndInferTypes(declarations, false);
+#if PRETYPE
+      PreTypeResolver preTypeResolver = null;
+#endif
+      if (DafnyOptions.O.Get(CommonOptionBag.NewTypeInference)) {
+        preTypeResolver = new PreTypeResolver(this);
+
+        preTypeResolver.ResolveDeclarations(declarations, moduleName);
+        if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+          var u = new CheckUnderspecification(this);
+          u.Check(declarations);
+        }
+#if PRETYPE_USE_IMPROVEMENTS
+        if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+          var u = new SubsetTypeImprover(this);
+          u.Improve(declarations);
+          u.PrintConstraints($"pre-solution (module {moduleName})");
+          u.SolveConstraints();
+          u.PrintConstraints($"post-solution (module {moduleName})");
+        }
+#endif
+        new PreTypeToTypeVisitor().VisitDeclarations(declarations);
+
+      } else {
+        // The task is first performed for (the constraints of) newtype declarations, (the constraints of) subset type declarations, and
+        // (the right-hand sides of) const declarations, because type resolution sometimes needs to know the base type of newtypes and subset types
+        // and needs to know the type of const fields. Doing these declarations increases the chances the right information will be provided
+        // in time.
+        // Once the task is done for these newtype/subset-type/const parts, the task continues with everything else.
+        ResolveNamesAndInferTypes(declarations, true);
+        ResolveNamesAndInferTypes(declarations, false);
+      }
 
       // Check that all types have been determined. During this process, fill in all .ResolvedOp fields.
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
@@ -2820,7 +2821,9 @@ namespace Microsoft.Dafny {
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
 #if PRETYPE
-        preTypeResolver.SanityCheckOldAndNewInference(declarations);
+        if (preTypeResolver != null) {
+          preTypeResolver.SanityCheckOldAndNewInference(declarations);
+        }
 #endif
         // ---------------------------------- Pass 2 ----------------------------------
         // This pass fills in various additional information.

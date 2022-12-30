@@ -88,7 +88,8 @@ namespace Microsoft.Dafny {
           new List<Type> { new InferredTypeProxy() }, true);
         decl = resolver.builtIns.arrayTypeDecls[dims];
       } else if (IsBitvectorName(name, out var width)) {
-        var bvDecl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, t => t.IsBitVectorType, null);
+        var bvDecl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, t => t.IsBitVectorType,
+          typeArgs => new BitvectorType(width));
         resolver.AddRotateMember(bvDecl, "RotateLeft", new SelfType());
         resolver.AddRotateMember(bvDecl, "RotateRight", new SelfType());
         decl = bvDecl;
@@ -125,7 +126,10 @@ namespace Microsoft.Dafny {
           variances.Add(TypeParameter.TPVarianceSyntax.Contravariance);
         }
         variances.Add(TypeParameter.TPVarianceSyntax.Covariant_Strict);
-        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false, null);
+        decl = new ValuetypeDecl(name, resolver.builtIns.SystemModule, variances, _ => false,
+          typeArguments => new ArrowType(Token.NoToken,
+            typeArguments.GetRange(0, typeArguments.Count - 1),
+            typeArguments.Last()));
         preTypeBuiltins.Add(name, decl);
       }
       return decl;
