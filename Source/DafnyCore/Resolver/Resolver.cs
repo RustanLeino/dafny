@@ -2272,7 +2272,8 @@ namespace Microsoft.Dafny {
       // ----------------------------------------------------------------------------
 
       if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-        // Check that type-parameter variance is respected in type definitions
+        // Check that type-parameter variance is respected in type definitions.
+        // Also check that variance and auto-init/nonempty are not used together.
         foreach (TopLevelDecl d in declarations) {
           if (d is ClassLikeDecl) {
             foreach (var tp in d.TypeArgs) {
@@ -2290,6 +2291,12 @@ namespace Microsoft.Dafny {
             var dd = (DatatypeDecl)d;
             foreach (var ctor in dd.Ctors) {
               ctor.Formals.Iter(formal => CheckVariance(formal.Type, dd, TypeParameter.TPVariance.Co, false));
+            }
+          }
+
+          foreach (var typeParameter in d.TypeArgs) {
+            if (typeParameter.Variance != TypeParameter.TPVariance.Non && typeParameter.Characteristics.IsNonempty) {
+              reporter.Error(MessageSource.Resolver, typeParameter.tok, "a type parameter is not allow to specify both variance and auto-init/nonempty");
             }
           }
         }
