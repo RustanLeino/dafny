@@ -2002,7 +2002,21 @@ namespace Microsoft.Dafny {
               $"newtype {dd.Name} is target-complete for {{:nativeType \"{dd.NativeType.Name}\"}}");
           }
         } else {
-          var detectedRange = emptyRange ? "empty" : $"{lowBound} .. {highBound}";
+          string detectedRange;
+          if (emptyRange) {
+            detectedRange = "empty";
+          } else {
+            Contract.Assert(lowBound != null && highBound != null);
+            var lo = (BigInteger)lowBound;
+            var hi = (BigInteger)highBound;
+            if (NumberFormatter.IsNearRoundBigHexNumber(lo, out var loNearZero) &&
+                NumberFormatter.IsNearRoundBigHexNumber(hi, out var hiNearZero) &&
+                !(loNearZero && hiNearZero)) {
+              detectedRange = $"{NumberFormatter.HexWithDelimiters(lo)} .. {NumberFormatter.HexWithDelimiters(hi)}";
+            } else {
+              detectedRange = $"{NumberFormatter.DecimalWithDelimiters(lo)} .. {NumberFormatter.DecimalWithDelimiters(hi)}";
+            }
+          }
           var targetComplete = dd.TargetTypeCoversAllBitPatterns ? "target-complete " : "";
           reporter.Info(MessageSource.Resolver, dd.tok,
             $"newtype {dd.Name} resolves as {{:nativeType \"{dd.NativeType.Name}\"}} (detected {targetComplete}range: {detectedRange})");
