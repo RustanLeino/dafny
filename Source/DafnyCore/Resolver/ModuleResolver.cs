@@ -2005,7 +2005,7 @@ namespace Microsoft.Dafny {
           var detectedRange = emptyRange ? "empty" : $"{lowBound} .. {highBound}";
           var targetComplete = dd.TargetTypeCoversAllBitPatterns ? "target-complete " : "";
           reporter.Info(MessageSource.Resolver, dd.tok,
-            $"newtype {dd.Name} resolves as {{:nativeType \"{dd.NativeType.Name}\"}} (detected range: {detectedRange})");
+            $"newtype {dd.Name} resolves as {{:nativeType \"{dd.NativeType.Name}\"}} (detected {targetComplete}range: {detectedRange})");
         }
       } else if (nativeTypeChoices != null) {
         reporter.Error(MessageSource.Resolver, dd,
