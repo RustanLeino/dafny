@@ -115,15 +115,26 @@ class CheckTypeInferenceVisitor : ASTVisitor<TypeInferenceCheckingContext> {
       if (e.Type.IsBitVectorType || e.Type.IsBigOrdinalType) {
         var n = (BigInteger)e.Value;
         var absN = n < 0 ? -n : n;
+        string magnitude;
+        if (e.tok.val != "-0") {
+          // use the literal syntax from the program
+          magnitude = e.tok.val.StartsWith("-") ? e.tok.val.Substring(1) : e.tok.val;
+        } else if (NumberFormatter.IsNearRoundBigHexNumber(absN, out var nearZero) && !nearZero) {
+          magnitude = NumberFormatter.HexWithDelimiters(absN);
+        } else {
+          magnitude = NumberFormatter.DecimalWithDelimiters(absN);
+        }
         // For bitvectors, check that the magnitude fits the width
         if (e.Type.IsBitVectorType && ConstantFolder.MaxBv(e.Type.AsBitVectorType.Width) < absN) {
-          resolver.ReportError(ResolutionErrors.ErrorId.r_literal_too_large_for_bitvector, e.tok, "literal ({0}) is too large for the bitvector type {1}", absN, e.Type);
+          resolver.ReportError(ResolutionErrors.ErrorId.r_literal_too_large_for_bitvector, e.tok,
+            "literal ({0}) is too large for the bitvector type {1}", magnitude, e.Type);
         }
         // For bitvectors and ORDINALs, check for a unary minus that, earlier, was mistaken for a negative literal
         // This can happen only in `match` patterns (see comment by LitPattern.OptimisticallyDesugaredLit).
         if (n < 0 || e.tok.val == "-0") {
           Contract.Assert(e.tok.val == "-0");  // this and the "if" above tests that "n < 0" happens only when the token is "-0"
-          resolver.ReportError(ResolutionErrors.ErrorId.r_no_unary_minus_in_case_patterns, e.tok, "unary minus (-{0}, type {1}) not allowed in case pattern", absN, e.Type);
+          resolver.ReportError(ResolutionErrors.ErrorId.r_no_unary_minus_in_case_patterns, e.tok,
+            "unary minus (-{0}, type {1}) not allowed in case pattern", magnitude, e.Type);
         }
       }
 

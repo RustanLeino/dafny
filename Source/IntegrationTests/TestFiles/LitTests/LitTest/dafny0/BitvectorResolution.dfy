@@ -110,3 +110,53 @@ module ParsingRegression1 {
     var x: int := |match c|;  // error: type of set is underspecified
   }
 }
+
+module LiteralsPrintedAsPartOfErrorMessages {
+  method Bitvectors(a: bv1, b: bv32) returns (c: bv32, d: bv1)
+  {
+    c := b;
+    d := a;
+    var x := 00050_00;  // error: number too big
+    d := x;
+    x := -0_0_05000;  // error: magnitude of number too big
+    x := -   12345;  // error: magnitude of number too big
+
+    var z: bv0;
+    z := 0;
+    z := -0;
+    z := 1;  // error: number too big
+    z := -1;  // error: number too big
+    z := --1;  // error: number too big
+    z := -- 1;  // error: number too big
+    c := 0x8000_0000;
+    c := 0xFFFF_FFFF;
+    c := 0x1_0000_0000;  // error: number too big
+    c := -(0x1_0000_0000);  // error: number too big
+    c := - - -0x1_0000_0000;  // error: number too big
+
+    var noll: bv0;
+    noll := (-1) << 300;  // error: number too big
+    
+    match b {
+      case 84_848_484_848_484_848 => // error: too big
+      case -0x8888_7777_6666_5555_4444 => // error: too big
+      case - 99_000111_000111_000 => // error: too big
+      case -0x00_8888_7777_6666_5555_0000 => // error: too big
+      case _ =>
+    }
+  }
+
+  method Ordinals(r: ORDINAL) {
+    match r {
+      case 2 =>
+      case -2 => // error: ORDINAL underflow
+      case -0 => // error: ORDINAL underflow
+      case -000 => // error: ORDINAL underflow
+      case - 0 => // error: ORDINAL underflow
+      case -0x555aB => // error: ORDINAL underflow
+      case -0x554401 => // error: ORDINAL underflow
+      case -0000_100_200_300 => // error: ORDINAL underflow
+      case _ =>
+    }
+  }
+}

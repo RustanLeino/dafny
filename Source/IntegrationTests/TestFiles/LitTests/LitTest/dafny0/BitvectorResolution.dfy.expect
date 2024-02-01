@@ -1,6 +1,6 @@
 BitvectorResolution.dfy(9,13): Error: literal (5000) is too large for the bitvector type bv1
 BitvectorResolution.dfy(15,9): Error: literal (1) is too large for the bitvector type bv0
-BitvectorResolution.dfy(18,9): Error: literal (4294967296) is too large for the bitvector type bv32
+BitvectorResolution.dfy(18,9): Error: literal (0x1_0000_0000) is too large for the bitvector type bv32
 BitvectorResolution.dfy(24,12): Error: literal (1) is too large for the bitvector type bv0
 BitvectorResolution.dfy(35,6): Error: RHS (of type bv67) not assignable to LHS (of type int)
 BitvectorResolution.dfy(36,6): Error: RHS (of type bv67) not assignable to LHS (of type int)
@@ -17,4 +17,29 @@ BitvectorResolution.dfy(98,14): Warning: Could not find a trigger for this quant
 BitvectorResolution.dfy(99,14): Warning: Could not find a trigger for this quantifier. Without a trigger, the quantifier may cause brittle verification. To silence this warning, add an explicit trigger using the {:trigger} attribute. For more information, see the section quantifier instantiation rules in the reference manual.
 BitvectorResolution.dfy(100,14): Warning: Could not find a trigger for this quantifier. Without a trigger, the quantifier may cause brittle verification. To silence this warning, add an explicit trigger using the {:trigger} attribute. For more information, see the section quantifier instantiation rules in the reference manual.
 BitvectorResolution.dfy(110,19): Error: the type of this expression is underspecified
-13 resolution/type errors detected in BitvectorResolution.dfy
+BitvectorResolution.dfy(119,13): Error: literal (00050_00) is too large for the bitvector type bv1
+BitvectorResolution.dfy(121,10): Error: literal (0_0_05000) is too large for the bitvector type bv1
+BitvectorResolution.dfy(122,13): Error: literal (12345) is too large for the bitvector type bv1
+BitvectorResolution.dfy(127,9): Error: literal (1) is too large for the bitvector type bv0
+BitvectorResolution.dfy(128,10): Error: literal (1) is too large for the bitvector type bv0
+BitvectorResolution.dfy(129,11): Error: literal (1) is too large for the bitvector type bv0
+BitvectorResolution.dfy(130,12): Error: literal (1) is too large for the bitvector type bv0
+BitvectorResolution.dfy(133,9): Error: literal (0x1_0000_0000) is too large for the bitvector type bv32
+BitvectorResolution.dfy(134,11): Error: literal (0x1_0000_0000) is too large for the bitvector type bv32
+BitvectorResolution.dfy(135,14): Error: literal (0x1_0000_0000) is too large for the bitvector type bv32
+BitvectorResolution.dfy(138,14): Error: literal (1) is too large for the bitvector type bv0
+BitvectorResolution.dfy(141,11): Error: literal (84_848_484_848_484_848) is too large for the bitvector type bv32
+BitvectorResolution.dfy(142,11): Error: literal (644_759_207_326_098_694_423_620) is too large for the bitvector type bv32
+BitvectorResolution.dfy(142,11): Error: unary minus (-644_759_207_326_098_694_423_620, type bv32) not allowed in case pattern
+BitvectorResolution.dfy(143,11): Error: literal (99_000_111_000_111_000) is too large for the bitvector type bv32
+BitvectorResolution.dfy(143,11): Error: unary minus (-99_000_111_000_111_000, type bv32) not allowed in case pattern
+BitvectorResolution.dfy(144,11): Error: literal (0x8888_7777_6666_5555_0000) is too large for the bitvector type bv32
+BitvectorResolution.dfy(144,11): Error: unary minus (-0x8888_7777_6666_5555_0000, type bv32) not allowed in case pattern
+BitvectorResolution.dfy(152,11): Error: unary minus (-2, type ORDINAL) not allowed in case pattern
+BitvectorResolution.dfy(153,11): Error: unary minus (-0, type ORDINAL) not allowed in case pattern
+BitvectorResolution.dfy(154,11): Error: unary minus (-0, type ORDINAL) not allowed in case pattern
+BitvectorResolution.dfy(155,11): Error: unary minus (-0, type ORDINAL) not allowed in case pattern
+BitvectorResolution.dfy(156,11): Error: unary minus (-349_611, type ORDINAL) not allowed in case pattern
+BitvectorResolution.dfy(157,11): Error: unary minus (-0x55_4401, type ORDINAL) not allowed in case pattern
+BitvectorResolution.dfy(158,11): Error: unary minus (-100_200_300, type ORDINAL) not allowed in case pattern
+38 resolution/type errors detected in BitvectorResolution.dfy
