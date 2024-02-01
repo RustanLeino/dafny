@@ -4,10 +4,10 @@ BitvectorResolution.dfy(18,9): Error: literal (0x1_0000_0000) is too large for t
 BitvectorResolution.dfy(24,12): Error: literal (1) is too large for the bitvector type bv0
 BitvectorResolution.dfy(35,6): Error: RHS (of type bv67) not assignable to LHS (of type int)
 BitvectorResolution.dfy(36,6): Error: RHS (of type bv67) not assignable to LHS (of type int)
-BitvectorResolution.dfy(40,15): Error: type of right argument to << (real) must be an integer-numeric or bitvector type
-BitvectorResolution.dfy(41,15): Error: type of right argument to << (SmallReal) must be an integer-numeric or bitvector type
 BitvectorResolution.dfy(42,25): Error: incorrect argument type for function parameter 'w' (expected nat, found real)
 BitvectorResolution.dfy(43,25): Error: incorrect argument type for function parameter 'w' (expected nat, found SmallReal)
+BitvectorResolution.dfy(40,15): Error: type of right argument to << (real) must be an integer-numeric or bitvector type
+BitvectorResolution.dfy(41,15): Error: type of right argument to << (SmallReal) must be an integer-numeric or bitvector type
 BitvectorResolution.dfy(76,6): Error: RHS (of type bv67) not assignable to LHS (of type int)
 BitvectorResolution.dfy(80,6): Error: RHS (of type bv67) not assignable to LHS (of type int)
 BitvectorResolution.dfy(102,10): Warning: Could not find a trigger for this quantifier. Without a trigger, the quantifier may cause brittle verification. To silence this warning, add an explicit trigger using the {:trigger} attribute. For more information, see the section quantifier instantiation rules in the reference manual.
@@ -16,7 +16,7 @@ BitvectorResolution.dfy(104,10): Warning: Could not find a trigger for this quan
 BitvectorResolution.dfy(106,14): Warning: Could not find a trigger for this quantifier. Without a trigger, the quantifier may cause brittle verification. To silence this warning, add an explicit trigger using the {:trigger} attribute. For more information, see the section quantifier instantiation rules in the reference manual.
 BitvectorResolution.dfy(107,14): Warning: Could not find a trigger for this quantifier. Without a trigger, the quantifier may cause brittle verification. To silence this warning, add an explicit trigger using the {:trigger} attribute. For more information, see the section quantifier instantiation rules in the reference manual.
 BitvectorResolution.dfy(108,14): Warning: Could not find a trigger for this quantifier. Without a trigger, the quantifier may cause brittle verification. To silence this warning, add an explicit trigger using the {:trigger} attribute. For more information, see the section quantifier instantiation rules in the reference manual.
-BitvectorResolution.dfy(118,19): Error: the type of this expression is underspecified
+BitvectorResolution.dfy(118,18): Error: size operator expects a collection argument (instead got ?0)
 BitvectorResolution.dfy(127,13): Error: literal (00050_00) is too large for the bitvector type bv1
 BitvectorResolution.dfy(129,10): Error: literal (0_0_05000) is too large for the bitvector type bv1
 BitvectorResolution.dfy(130,13): Error: literal (12345) is too large for the bitvector type bv1

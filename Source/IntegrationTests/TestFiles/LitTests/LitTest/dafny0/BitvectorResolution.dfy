@@ -1,5 +1,5 @@
-// RUN: %exits-with 2 %verify "%s" > "%t"
-// RUN: %diff "%s.expect" "%t"
+// RUN: %testDafnyForEachResolver --expect-exit-code=2 "%s"
+
 
 module LiteralSizes {
   method M(a: bv1, b: bv32) returns (c: bv32, d: bv1)
@@ -35,8 +35,8 @@ module OrdinaryTypeChecking {
     x := b67 << 3;  // error: result not assignable to an int
     x := b67 << 3 as int;  // error: ditto (the "as" applies only to the "3")
     x := (b67 << 3) as int;
-    x := b67.RotateLeft(3); // error: bitwise rotations produce bitvectors
-    x := b67.RotateRight(3); // error: ditto
+
+    
     b67 := b67 << r;  // error: cannot shift by a real
     b67 := b67 << small;  // error: cannot shift by a real
     b67 := b67.RotateLeft(r);
@@ -70,6 +70,14 @@ module OrdinaryTypeChecking {
     w := 1 << 3;
     seven := 1 << 3;
     noll := 1 << 3;
+  }
+
+  method Left(b67: bv67) returns (x: int) {
+    x := b67.RotateLeft(3); // error: bitwise rotations produce bitvectors
+  }
+
+  method Right(b67: bv67) returns (x: int) {
+    x := b67.RotateRight(3); // error: bitwise rotations produce bitvectors
   }
 }
 
